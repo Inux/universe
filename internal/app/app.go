@@ -28,6 +28,11 @@ import (
 	"github.com/g3n/engine/window"
 )
 
+const (
+	titleFontSize = 20
+	labelFontSize = 13
+)
+
 // App contains the application state
 type App struct {
 	*app.Application                  // Embedded standard application object
@@ -40,13 +45,14 @@ type App struct {
 	frameRater       *util.FrameRater // Render loop frame rater
 
 	// GUI
-	mainPanel  *gui.Panel
-	demoPanel  *gui.Panel
-	labelFPS   *gui.Label         // header FPS label
-	treeTests  *gui.Tree          // tree with test names
-	stats      *stats.Stats       // statistics object
-	statsTable *stats.StatsTable  // statistics table panel
-	control    *gui.ControlFolder // Pointer to gui control panel
+	mainPanel   *gui.Panel
+	demoPanel   *gui.Panel
+	labelFPS    *gui.Label         // header FPS label
+	labelCamera *gui.Label         // header camera label
+	treeTests   *gui.Tree          // tree with test names
+	stats       *stats.Stats       // statistics object
+	statsTable  *stats.StatsTable  // statistics table panel
+	control     *gui.ControlFolder // Pointer to gui control panel
 
 	// Camera and orbit control
 	camera *camera.Camera       // Camera
@@ -90,20 +96,22 @@ func usage() {
 }
 
 const (
-	progName = "G3N Demo" // TODO set title (create pair of files for build tags)
-	execName = "g3nd"
-	vmajor   = 0
-	vminor   = 6
+	progName  = "Universe"
+	execName  = "universe"
+	vmajor    = 0
+	vminor    = 1
+	guiWidth  = 1024
+	guiHeight = 768
 )
 
 // Create creates the G3ND application using the specified map of demos
 func Create() *App {
 
 	a := new(App)
-	a.Application = app.App(1024, 768, "Universe")
+	a.Application = app.App(guiWidth, guiHeight, "Universe")
 
 	// Creates application logger
-	a.log = logger.New("G3ND", nil)
+	a.log = logger.New("Universe", nil)
 	a.log.AddWriter(logger.NewConsole(false))
 	a.log.SetFormat(logger.FTIME | logger.FMICROS)
 	a.log.SetLevel(logger.DEBUG)
@@ -313,9 +321,9 @@ func (a *App) buildGui(demoMap map[string]IDemo) {
 
 	// Adds header after the gui central panel to ensure that the control folder
 	// stays over the gui panel when opened.
-	headerColor := math32.Color4{13.0 / 256.0, 41.0 / 256.0, 62.0 / 256.0, 1}
-	lightTextColor := math32.Color4{0.8, 0.8, 0.8, 1}
-	header := gui.NewPanel(600, 40)
+	headerColor := math32.Color4{R: 0.3, G: 0.3, B: 0.3, A: 1}
+	lightTextColor := math32.Color4{R: 0.9, G: 0.9, B: 0.9, A: 1}
+	header := gui.NewPanel(guiWidth, 40)
 	header.SetBorders(0, 0, 1, 0)
 	header.SetPaddings(4, 4, 4, 4)
 	header.SetColor4(&headerColor)
@@ -334,28 +342,39 @@ func (a *App) buildGui(demoMap map[string]IDemo) {
 	}
 
 	// Header title
-	const fontSize = 20
 	title := gui.NewLabel(" ")
-	title.SetFontSize(fontSize)
+	title.SetFontSize(titleFontSize)
 	title.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignCenter})
 	title.SetText(fmt.Sprintf("%s v%d.%d", progName, vmajor, vminor))
 	title.SetColor4(&lightTextColor)
 	header.Add(title)
 	// FPS
 	if !*oHideFPS {
-		l1 := gui.NewLabel(" ")
-		l1.SetFontSize(fontSize)
+		l1 := gui.NewLabel("  FPS: ")
+		l1.SetFontSize(labelFontSize)
 		l1.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignCenter})
-		l1.SetText("  FPS: ")
 		l1.SetColor4(&lightTextColor)
 		header.Add(l1)
 		// FPS value
-		a.labelFPS = gui.NewLabel(" ")
-		a.labelFPS.SetFontSize(fontSize)
+		a.labelFPS = gui.NewLabel("                     ")
+		a.updateFPS()
+		a.labelFPS.SetFontSize(labelFontSize)
 		a.labelFPS.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignCenter})
 		a.labelFPS.SetColor4(&lightTextColor)
 		header.Add(a.labelFPS)
 	}
+
+	lc := gui.NewLabel("  Camera: ")
+	lc.SetFontSize(labelFontSize)
+	lc.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignCenter})
+	lc.SetColor4(&lightTextColor)
+	header.Add(lc)
+	// Camera value
+	a.labelCamera = gui.NewLabel("                     ")
+	a.labelCamera.SetFontSize(labelFontSize)
+	a.labelCamera.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignCenter})
+	a.labelCamera.SetColor4(&lightTextColor)
+	header.Add(a.labelCamera)
 
 	// New styles for control folder
 	styles := gui.StyleDefault().ControlFolder
@@ -366,19 +385,21 @@ func (a *App) buildGui(demoMap map[string]IDemo) {
 
 	// Adds statistics table control folder if requested
 	if *oStats {
+		a.log.Info("Statistics enabled")
 		// Adds spacer to right justify the control folder in the header
 		spacer := gui.NewPanel(0, 0)
 		spacer.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignBottom, Expand: 1.2})
 		header.Add(spacer)
 
 		// Creates control folder for statistics table
-		statsControlFolder := gui.NewControlFolder("Stats", 100)
-		statsControlFolder.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignBottom})
+		width, _ := header.Size()
+		statsControlFolder := gui.NewControlFolder("Stats", width*0.8)
+		statsControlFolder.SetLayoutParams(&gui.HBoxLayoutParams{AlignV: gui.AlignBottom, Expand: 1.2})
 		statsControlFolder.SetStyles(&styles)
 		header.Add(statsControlFolder)
 
 		// Adds stats table in the control folder
-		a.statsTable = stats.NewStatsTable(220, 200, a.Gls())
+		a.statsTable = stats.NewStatsTable(width*0.4, 200, a.Gls())
 		statsControlFolder.AddPanel(a.statsTable)
 	}
 
@@ -410,7 +431,26 @@ func (a *App) buildGui(demoMap map[string]IDemo) {
 	// Add items to the list
 	for _, name := range tnames {
 		parts := strings.Split(name, ".")
-		if len(parts) > 1 {
+		if len(parts) > 2 {
+			categoryOne := parts[0]
+			node := nodes[categoryOne]
+			if node == nil {
+				node = a.treeTests.AddNode(categoryOne)
+				nodes[categoryOne] = node
+			}
+
+			categoryTwo := parts[1]
+			nodeTwo := nodes[categoryOne+categoryTwo]
+			if nodeTwo == nil {
+				nodeTwo = node.AddNode(categoryTwo)
+				nodes[categoryOne+categoryTwo] = nodeTwo
+			}
+
+			labelText := strings.Join(parts[2:], ".")
+			item := gui.NewLabel(labelText)
+			item.SetUserData(demoMap[name])
+			nodeTwo.Add(item)
+		} else if len(parts) > 1 {
 			category := parts[0]
 			node := nodes[category]
 			if node == nil {
@@ -440,6 +480,20 @@ func (a *App) buildGui(demoMap map[string]IDemo) {
 			a.currentDemo = test
 		}
 	})
+
+	buttonReset := gui.NewButton("Reset")
+	//resetButton.SetPosition(100, 10)
+	buttonReset.Label.SetFontSize(20)
+	buttonReset.Subscribe(gui.OnClick, func(name string, ev interface{}) {
+		a.Log().Info("Button Reset OnClick")
+		if a.currentDemo != nil {
+			a.setupScene()
+			a.currentDemo.Start(a)
+		}
+	})
+	a.treeTests.Add(buttonReset)
+
+	//a.demoPanel.Add(buttonReset)
 	a.mainPanel.Add(a.treeTests)
 
 	// return key focus to demo scene when leaving gui
@@ -663,6 +717,7 @@ func (a *App) Update(rend *renderer.Renderer, deltaTime time.Duration) {
 	// Control and update FPS
 	a.frameRater.Wait()
 	a.updateFPS()
+	a.updateCamera()
 }
 
 // UpdateFPS updates the fps value in the window title or header label
@@ -680,4 +735,13 @@ func (a *App) updateFPS() {
 
 	// Show the FPS in the header label
 	a.labelFPS.SetText(fmt.Sprintf("%3.1f / %3.1f", fps, pfps))
+}
+
+// UpdateCamera updates the camera position
+func (a *App) updateCamera() {
+	cp := a.camera.Position()
+	position := fmt.Sprintf("%.2f, %.2f, %.2f", cp.X, cp.Y, cp.Z)
+	quat := a.camera.Quaternion()
+	quaternion := fmt.Sprintf("%.2f, %.2f, %.2f, %.2f", quat.X, quat.Y, quat.Z, quat.W)
+	a.labelCamera.SetText("Pos: " + position + ", Quaternion: " + quaternion)
 }

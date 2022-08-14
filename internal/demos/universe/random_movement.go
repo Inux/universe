@@ -1,8 +1,6 @@
 package universe
 
 import (
-	"log"
-	"math/rand"
 	"time"
 
 	"github.com/g3n/engine/geometry"
@@ -16,28 +14,13 @@ func init() {
 	app.DemoMap["universe.random_movement"] = &RandomSpheres{}
 }
 
-const (
-	GridMaxWidth  = 20
-	GridMaxHeight = 20
-	GridMaxDepth  = 20
-)
-
-var (
-	minTime      = 100 * time.Millisecond
-	currentDelta = 0 * time.Millisecond
-)
-
 type RandomSpheres struct {
 	meshes []*graphic.Mesh
 }
 
-// Get Random float32 within given range
-func getRandomFloat32(min, max float32) float32 {
-	return min + rand.Float32()*(max-min)
-}
-
 // Start is called once at the start of the demo.
-func (t *RandomSpheres) Start(a *app.App) {
+func (rs *RandomSpheres) Start(a *app.App) {
+	rs.meshes = make([]*graphic.Mesh, 0)
 
 	geom := geometry.NewSphere(0.1, 20, 20)
 	mat := material.NewStandard(math32.NewColor("Black"))
@@ -49,19 +32,18 @@ func (t *RandomSpheres) Start(a *app.App) {
 				mesh := graphic.NewMesh(geom, mat)
 				mesh.SetPositionVec(math32.NewVector3(float32(x), float32(y), float32(z)))
 				a.Scene().Add(mesh)
-				t.meshes = append(t.meshes, mesh)
+				rs.meshes = append(rs.meshes, mesh)
 			}
 		}
 	}
 }
 
 // Update is called every frame.
-func (t *RandomSpheres) Update(a *app.App, deltaTime time.Duration) {
+func (rs *RandomSpheres) Update(a *app.App, deltaTime time.Duration) {
 
 	currentDelta += deltaTime
 	if currentDelta > minTime {
-		log.Printf("Frame time is too high: %s", deltaTime)
-		for _, mesh := range t.meshes {
+		for _, mesh := range rs.meshes {
 			pos := mesh.Position()
 			pos.X += getRandomFloat32(-0.5, 0.5)
 			pos.Y += getRandomFloat32(-0.5, 0.5)
@@ -73,4 +55,4 @@ func (t *RandomSpheres) Update(a *app.App, deltaTime time.Duration) {
 }
 
 // Cleanup is called once at the end of the demo.
-func (t *RandomSpheres) Cleanup(a *app.App) {}
+func (rs *RandomSpheres) Cleanup(a *app.App) {}
