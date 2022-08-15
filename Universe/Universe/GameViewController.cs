@@ -5,6 +5,7 @@ using AppKit;
 using SceneKit;
 using Foundation;
 using CoreAnimation;
+using Universe.Elements;
 
 namespace Universe
 {
@@ -14,7 +15,8 @@ namespace Universe
 		public override void AwakeFromNib ()
 		{
 			// create a new scene
-			var scene = SCNScene.FromFile ("art.scnassets/ship");
+			//var scene = SCNScene.FromFile ("art.scnassets/ship");
+			var scene = SCNScene.Create();
 
 			// create and add a camera to the scene
 			var cameraNode = SCNNode.Create ();
@@ -38,18 +40,26 @@ namespace Universe
 			ambientLightNode.Light.Color = NSColor.DarkGray;
 			scene.RootNode.AddChildNode (ambientLightNode);
 
-			// retrieve the ship node
-			var ship = scene.RootNode.FindChildNode ("ship", true);
+			foreach(var node in SphereFactory.CreateGrid(new SCNVector3(0, 0, 0), 10, 10, 10, 1))
+            {
+				scene.RootNode.AddChildNode(node);
+            }
 
-			// animate the 3d object
-			var animation = CABasicAnimation.FromKeyPath ("rotation");
-			animation.To = NSValue.FromVector (new SCNVector4 (0, 1, 0, (nfloat) Math.PI * 2));
-			animation.Duration = 3;
-			animation.RepeatCount = float.MaxValue; //repeat forever
-			ship.AddAnimation (animation, null);
 
-			// set the scene to the view
-			MyGameView.Scene = scene;
+			cameraNode.Look(new SCNVector3(0, 0, 0));
+
+            // retrieve the ship node
+            // var ship = scene.RootNode.FindChildNode ("ship", true);
+
+            // animate the 3d object
+            // var animation = CABasicAnimation.FromKeyPath ("rotation");
+            // animation.To = NSValue.FromVector (new SCNVector4 (0, 1, 0, (nfloat) Math.PI * 2));
+            // animation.Duration = 3;
+            // animation.RepeatCount = float.MaxValue; //repeat forever
+            // ship.AddAnimation (animation, null);
+
+            // set the scene to the view
+            MyGameView.Scene = scene;
 
 			// allows the user to manipulate the camera
 			MyGameView.AllowsCameraControl = true;
