@@ -9,16 +9,16 @@ using System.CodeDom.Compiler;
 
 namespace Universe
 {
-	partial class GameViewController
+	partial class UniverseViewController
 	{
 		[Outlet]
-		SceneKit.SCNView MyGameView { get; set; }
+		SceneKit.SCNView MyUniverseView { get; set; }
 
 		void ReleaseDesignerOutlets ()
 		{
-			if (MyGameView != null) {
-				MyGameView.Dispose ();
-				MyGameView = null;
+			if (MyUniverseView != null) {
+                MyUniverseView.Dispose ();
+                MyUniverseView = null;
 			}
 		}
 	}

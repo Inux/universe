@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using AppKit;
 using SceneKit;
+using Universe.Extensions;
 
 namespace Universe.Elements
 {
@@ -16,6 +17,8 @@ namespace Universe.Elements
             var node = SCNNode.Create();
             node.Geometry = sphere;
             node.Position = position;
+            node.PhysicsBody = SCNPhysicsBody.CreateDynamicBody();
+            node.PhysicsBody.AffectedByGravity = true;
 
             return node;
         }
@@ -27,14 +30,16 @@ namespace Universe.Elements
             var xMax = startPosition.X + width;
             var yMax = startPosition.Y + height;
             var zMax = startPosition.Z + depth;
-           
-            for(var x = startPosition.X; x < xMax; x = x + step)
+
+            for (var x = startPosition.X; x < xMax; x = x + step)
             {
-                for(var y = startPosition.Y; y < yMax; y = y + step)
+                for (var y = startPosition.Y; y < yMax; y = y + step)
                 {
-                    for(var z = startPosition.Z; z < zMax; z = z + step)
+                    for (var z = startPosition.Z; z < zMax; z = z + step)
                     {
-                        nodes.Add(SphereFactory.Create(new SCNVector3(x, y, z), 0.1f, NSColor.Gray));
+                        var position = new SCNVector3(x, y, z);
+                        position = position.AddNoise(0.5f);
+                        nodes.Add(SphereFactory.Create(position, 0.1f, NSColor.Gray));
                     }
                 }
             }
