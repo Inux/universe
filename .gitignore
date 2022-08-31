@@ -16,3 +16,11 @@
 
 # Mac OS X
 .DS_Store
+
+# dotnet
+
+bin
+obj
+.vs
+
+packages
