@@ -28,6 +28,7 @@ namespace Universe
             // create a new scene
             //var scene = SCNScene.FromFile ("art.scnassets/ship");
             var scene = SCNScene.Create();
+            Console.WriteLine("Scene Created...");
 
             scene.PhysicsWorld.Gravity = new SCNVector3(0, -1.81f, 0);
 
@@ -87,7 +88,6 @@ namespace Universe
 
             // configure the view
             MyUniverseView.BackgroundColor = NSColor.Black;
-
         }
 
         public override void UpdateViewConstraints()

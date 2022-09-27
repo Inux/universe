@@ -9,11 +9,14 @@ namespace Universe
     [Register("UniverseView")]
     public partial class UniverseView : SCNView
     {
-        public UniverseView(IntPtr Handle) : base(Handle) { }
+        public UniverseView(IntPtr Handle) : base(Handle) {
+            Console.WriteLine("UniverseView");
+        }
 
         // forward click event to the universe view controller
         public override void MouseDown(NSEvent theEvent)
         {
+            Console.WriteLine("MouseDown");
             // Called when a mouse click occurs
 
             // check what nodes are clicked
@@ -55,6 +58,12 @@ namespace Universe
         public override void KeyDown(NSEvent theEvent)
         {
             Console.WriteLine("Key Down: {0}", theEvent.KeyCode);
+            bool commandPressed = (((uint)theEvent.ModifierFlags) & (uint)NSEventModifierMask.CommandKeyMask) == (uint)NSEventModifierMask.CommandKeyMask;
+            if (commandPressed && theEvent.KeyCode == ((ushort)NSKey.R))
+            {
+                Console.WriteLine("Cmd + R Pressed: Resetting...");
+            }
+            Console.WriteLine($"ModifierFlags: {theEvent.ModifierFlags}, Command Pressed: {commandPressed}");
 
             base.KeyDown(theEvent);
         }
