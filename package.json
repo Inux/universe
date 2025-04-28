@@ -1,11 +1,19 @@
 {
+  "name": "universe-browser-game",
+  "version": "1.0.0",
+  "description": "Browser-only version of the Universe game",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "serve": "vite preview"
+  },
   "dependencies": {
     "three": "^0.159.0"
   },
   "devDependencies": {
-    "@types/three": "^0.159.0"
-  },
-  "scripts": {
-    "watch-ts": "nodemon --watch 'static/**/*.ts' --exec 'tsc'"
+    "@types/three": "^0.159.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.3"
   }
 }
