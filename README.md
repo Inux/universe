@@ -1,9 +1,18 @@
-# Universe
+# Bubble Simulation
 
-***a simulation within a simulation***
+## First time setup
+```
+go mod init bubblesim
+go get github.com/gorilla/websocket
+```
 
-## Documentation
+## Compile the TypeScript
+```
+npm install -g typescript
+tsc
+```
 
-### Guidelines
-
-- Following standard (project layout)[https://github.com/golang-standards/project-layout]
+## Run the Go server
+```
+go run main.go
+```
