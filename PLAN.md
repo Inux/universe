@@ -1,6 +1,6 @@
 # Implementation Plan
 
-* For all tasks keep the README.md and docs.md updated accordingly
+* For all tasks keep the README.md, docs.md and PLAN.md updated accordingly
 
 ## Phase 1:
 
@@ -11,10 +11,6 @@
   * Check for code duplication
   * Check for code complexity
 * UI Cleanup
-  * Make the UI more user-friendly
-  * Make the UI more responsive
-  * Make the UI more accessible
-  * Make the UI more modern
   * Check that Explore button is visible
 
 ## Phase 2:
