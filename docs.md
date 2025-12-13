@@ -2,33 +2,41 @@
 
 ## Architecture
 
-The Universe Browser Game uses a modular TypeScript architecture with Three.js for 3D rendering.
+The Universe Browser Game uses a Vue-first architecture with composables managing Three.js scenes.
 
 ### File Structure
 
 ```
 src/
-├── app.ts           # Main game client, event handling, game loop
-├── models.ts        # TypeScript interfaces and constants
-├── physics.ts       # Physics simulation (gravity, movement, collisions)
-├── skybox.ts        # Procedural starfield and space background
-├── shaders.ts       # Custom GLSL shaders for atmospheres
-├── rings.ts         # Saturn and Uranus ring generation
-├── solarSystem.ts   # Planet data, creation logic, orbital mechanics
-└── (future)
-    ├── terrain.ts       # Procedural terrain generation
-    ├── planetData.ts    # Extended planet information
-    └── ui/
-        └── InfoPanel.ts # Planet info panel component
+├── main.ts              # Vue app entry point
+├── App.vue              # Root component, view switching
+├── lib/
+│   ├── components/      # Vue components
+│   │   ├── ThreeCanvas.vue   # Solar system 3D canvas
+│   │   ├── SurfaceView.vue   # Planet surface exploration
+│   │   ├── InfoPanel.vue     # Planet info panel
+│   │   └── ControlsHint.vue  # Keyboard controls overlay
+│   ├── composables/     # Vue composables
+│   │   ├── useThreeScene.ts  # Solar system scene management
+│   │   └── useSurfaceView.ts # Surface exploration scene
+│   ├── three/           # Three.js modules
+│   │   ├── solarSystem.ts    # Planet data, orbital mechanics
+│   │   ├── terrain.ts        # Procedural terrain (simplex noise)
+│   │   ├── skybox.ts         # Starfield, nebulae, galaxies
+│   │   ├── shaders.ts        # Atmosphere, sun glow shaders
+│   │   ├── rings.ts          # Saturn/Uranus rings
+│   │   └── CameraTransition.ts # Smooth camera animations
+│   └── data/
+│       └── planetData.ts     # Extended planet information
 ```
 
 ### Module Responsibilities
 
 | Module | Purpose |
 |--------|---------|
-| `app.ts` | Game initialization, render loop, input handling, camera controls |
-| `models.ts` | Player, Vector3, Camera, Physics interfaces |
-| `physics.ts` | Gravity simulation, player movement, collision detection |
+| `useThreeScene.ts` | Solar system scene, camera, controls, raycasting |
+| `useSurfaceView.ts` | Surface exploration scene, movement, physics |
+| `terrain.ts` | Procedural terrain with fBm noise, planet-specific configs |
 | `skybox.ts` | Starfield generation, nebula effects, distant galaxies |
 | `shaders.ts` | Fresnel atmosphere shaders, sun glow/corona effects |
 | `rings.ts` | Procedural ring textures for Saturn and Uranus |
@@ -115,56 +123,59 @@ Star sizes follow a distribution: 70% small, 25% medium, 5% bright.
 
 ## UI Design
 
-### Planet Information Panel (Planned)
+### Planet Information Panel
 
-```
-┌─────────────────────────────────┐
-│  🪐 JUPITER                     │
-├─────────────────────────────────┤
-│  Radius: 69,911 km              │
-│  Mass: 1.898 × 10²⁷ kg          │
-│  Distance: 778.5M km from Sun   │
-│  Orbital Period: 11.86 years    │
-│  Day Length: 9.9 hours          │
-├─────────────────────────────────┤
-│  The largest planet in our      │
-│  solar system. Known for its    │
-│  Great Red Spot storm.          │
-├─────────────────────────────────┤
-│  [ Explore Surface ]            │
-└─────────────────────────────────┘
-```
+Glass-morphism styled panel with:
+- Planet emoji and name header
+- Physical properties (radius, mass, temperature, gravity)
+- Orbital data (distance, year length, day length, moon count)
+- Atmosphere composition
+- Description and discovery info
+- **Explore Surface** button (for all planets except Sun)
 
 ### HUD Elements
 
-- **Top-right**: Selected planet info (name, radius, distance, orbital period)
+- **Right side**: Planet info panel (click planet to show)
 - **Bottom-left**: Controls hint
 - **Styling**: Glass-morphism with backdrop blur, gradient backgrounds
 
 ---
 
-## Surface Features by Planet (Planned)
+## Surface Exploration
 
-| Planet   | Terrain Type | Colors | Features |
-|----------|-------------|--------|----------|
-| Mercury  | Rocky       | Grey/brown | Heavy cratering |
-| Venus    | Volcanic    | Yellow/orange | Volcanic plains, thick atmosphere |
-| Earth    | Varied      | Green/blue/brown | Continents, oceans, mountains |
-| Mars     | Desert      | Red/orange | Canyons, volcanoes, polar ice |
-| Jupiter  | Gas clouds  | Orange/white bands | Storms, Great Red Spot |
-| Saturn   | Gas clouds  | Yellow/gold bands | Hexagonal storm at pole |
-| Uranus   | Ice clouds  | Cyan/teal | Uniform appearance |
-| Neptune  | Ice clouds  | Deep blue | Dark spots, high winds |
+### Terrain Generation
+
+Uses fractal Brownian motion (fBm) with simplex noise:
+
+```typescript
+for (let i = 0; i < octaves; i++) {
+    height += amplitude * noise2D(x * frequency, y * frequency);
+    amplitude *= persistence;  // Reduce amplitude each octave
+    frequency *= lacunarity;   // Increase frequency each octave
+}
+```
+
+### Planet-Specific Terrain Configs
+
+| Planet   | Gravity | Terrain Style | Colors |
+|----------|---------|---------------|--------|
+| Mercury  | 3.7 m/s² | Rocky, cratered | Grey |
+| Venus    | 8.87 m/s² | Volcanic plains | Orange/yellow |
+| Earth    | 9.81 m/s² | Mountains + water | Green/blue |
+| Mars     | 3.71 m/s² | Desert canyons | Red/brown |
+| Jupiter  | 24.79 m/s² | Gas clouds | Orange bands |
+| Saturn   | 10.44 m/s² | Gas clouds | Yellow/gold |
+| Uranus   | 8.69 m/s² | Ice clouds | Cyan |
+| Neptune  | 11.15 m/s² | Ice clouds | Deep blue |
 
 ---
 
 ## Resources
 
-### Texture Sources (Public Domain)
-- NASA Solar System Exploration: https://solarsystem.nasa.gov/
-- Solar System Scope: https://www.solarsystemscope.com/textures/
-- NASA Visible Earth: https://visibleearth.nasa.gov/
+### Texture Sources
+- Local textures in `/public/textures/` (from Solar System Scope)
 
 ### Dependencies
-- **three.js** (^0.159.0) - 3D rendering
-- **simplex-noise** (^4.0.0) - Terrain generation (future)
+- **vue** (^3.x) - UI framework
+- **three** (^0.159.0) - 3D rendering
+- **simplex-noise** (^4.0.0) - Procedural terrain generation

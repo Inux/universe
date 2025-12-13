@@ -26,15 +26,7 @@ export interface PlanetData {
 export const SCALE = {
     DISTANCE: 1/100000,
     TIME: 1000000,
-    MIN_HEIGHT: 0.005,
     MAX_HEIGHT: 5e8,
-    PLAYER: 0.5,
-    GRAVITY: 0.5,
-    JUMP_FORCE: 0.1,
-    JUMP_HEIGHT: 0.0001,
-    CAMERA_FOLLOW_HEIGHT: 0.2,
-    CAMERA_FOLLOW_DISTANCE: 0.3,
-    MOVEMENT_SPEED: 0.1,
     MOON_SCALE: 1/2
 };
 
@@ -58,7 +50,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 0,
         orbitalPeriod: 0,
         rotationPeriod: 609.6,
-        texture: '/public/textures/2k_sun.jpg',
+        texture: '/textures/2k_sun.jpg',
         color: 0xffdd44
     },
     mercury: {
@@ -67,7 +59,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 57.9e6,
         orbitalPeriod: 88,
         rotationPeriod: 1407.6,
-        texture: '/public/textures/2k_mercury.jpg',
+        texture: '/textures/2k_mercury.jpg',
         color: 0x888888,
         hasAtmosphere: false
     },
@@ -77,7 +69,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 108.2e6,
         orbitalPeriod: 224.7,
         rotationPeriod: -5832.5,
-        texture: '/public/textures/2k_venus_surface.jpg',
+        texture: '/textures/2k_venus_surface.jpg',
         color: 0xffd700,
         hasAtmosphere: true
     },
@@ -87,7 +79,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 149.6e6,
         orbitalPeriod: 365.25,
         rotationPeriod: 24,
-        texture: '/public/textures/2k_earth_daymap.jpg',
+        texture: '/textures/2k_earth_daymap.jpg',
         color: 0x2233ff,
         hasAtmosphere: true,
         moons: [
@@ -100,7 +92,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 227.9e6,
         orbitalPeriod: 687,
         rotationPeriod: 24.6,
-        texture: '/public/textures/2k_mars.jpg',
+        texture: '/textures/2k_mars.jpg',
         color: 0xcd5c5c,
         hasAtmosphere: true,
         moons: [
@@ -114,7 +106,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 778.5e6,
         orbitalPeriod: 4333,
         rotationPeriod: 9.9,
-        texture: '/public/textures/2k_jupiter.jpg',
+        texture: '/textures/2k_jupiter.jpg',
         color: 0xd8ca9d,
         hasAtmosphere: true,
         moons: [
@@ -130,7 +122,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 1432e6,
         orbitalPeriod: 10759,
         rotationPeriod: 10.7,
-        texture: '/public/textures/2k_saturn.jpg',
+        texture: '/textures/2k_saturn.jpg',
         color: 0xfad5a5,
         hasAtmosphere: true,
         hasRings: true,
@@ -147,7 +139,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 2867e6,
         orbitalPeriod: 30687,
         rotationPeriod: -17.2,
-        texture: '/public/textures/2k_uranus.jpg',
+        texture: '/textures/2k_uranus.jpg',
         color: 0x4fd0e7,
         hasAtmosphere: true,
         hasRings: true,
@@ -164,7 +156,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 4515e6,
         orbitalPeriod: 60190,
         rotationPeriod: 16.1,
-        texture: '/public/textures/2k_neptune.jpg',
+        texture: '/textures/2k_neptune.jpg',
         color: 0x4169e1,
         hasAtmosphere: true,
         moons: [
