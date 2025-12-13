@@ -1,17 +1,17 @@
 <template>
   <Transition name="surface">
-    <div v-if="isActive" class="surface-view">
+    <div v-if="showView" class="surface-view">
       <div ref="canvasContainer" class="canvas-container"></div>
 
       <!-- Loading overlay -->
       <div v-if="isLoading" class="loading-overlay">
         <div class="loading-spinner"></div>
-        <div class="loading-text">Generating {{ currentPlanet }} terrain...</div>
+        <div class="loading-text">Generating {{ displayPlanet }} terrain...</div>
       </div>
 
       <!-- HUD -->
       <div class="surface-hud">
-        <div class="planet-name">{{ currentPlanet?.toUpperCase() }}</div>
+        <div class="planet-name">{{ displayPlanet?.toUpperCase() }}</div>
         <div class="gravity-info">Gravity: {{ gravityDisplay }} m/s²</div>
       </div>
 
@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { useSurfaceView } from '../composables/useSurfaceView';
 import { TERRAIN_CONFIGS } from '../three/terrain';
 
@@ -46,14 +46,21 @@ const emit = defineEmits<{
 }>();
 
 const canvasContainer = ref<HTMLElement | null>(null);
+const showView = ref(false);
+const displayPlanet = ref<string | null>(null);
 
 const { isActive, isLoading, currentPlanet, enter, exit } = useSurfaceView(canvasContainer, {
-  onExit: () => emit('exit'),
+  onExit: () => {
+    showView.value = false;
+    displayPlanet.value = null;
+    emit('exit');
+  },
 });
 
 const gravityDisplay = computed(() => {
-  if (!currentPlanet.value) return '0.00';
-  const config = TERRAIN_CONFIGS[currentPlanet.value];
+  const planet = displayPlanet.value;
+  if (!planet) return '9.81';
+  const config = TERRAIN_CONFIGS[planet];
   return config?.gravity.toFixed(2) || '9.81';
 });
 
@@ -64,14 +71,21 @@ function handleExit() {
 // Watch for enter trigger
 watch(
   () => props.shouldEnter,
-  (shouldEnter) => {
+  async (shouldEnter) => {
     if (shouldEnter && props.planet && !isActive.value) {
-      // Small delay to ensure container is mounted
+      // First show the view so container is mounted
+      displayPlanet.value = props.planet;
+      showView.value = true;
+
+      // Wait for DOM to update
+      await nextTick();
+
+      // Give a small delay for the container to be fully ready
       setTimeout(() => {
         if (canvasContainer.value && props.planet) {
           enter(props.planet);
         }
-      }, 100);
+      }, 50);
     }
   }
 );
@@ -80,6 +94,7 @@ defineExpose({
   enter,
   exit,
   isActive,
+  showView,
 });
 </script>
 
