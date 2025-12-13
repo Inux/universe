@@ -77,6 +77,9 @@ function handleSurfaceExit() {
   surfaceViewActive.value = false;
   shouldEnterSurface.value = false;
 
+  // Show info panel again when returning from surface
+  infoPanelVisible.value = true;
+
   // Trigger resize to fix renderer after being hidden
   setTimeout(() => {
     window.dispatchEvent(new Event('resize'));

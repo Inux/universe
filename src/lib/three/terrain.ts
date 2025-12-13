@@ -23,20 +23,20 @@ export interface TerrainConfig {
  */
 export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
     mercury: {
-        noiseFrequency: 2.0,
-        amplitude: 0.08,
-        octaves: 6,
+        noiseFrequency: 1.5,
+        amplitude: 0.25,  // Dramatic craters and mountains
+        octaves: 8,
         persistence: 0.5,
-        lacunarity: 2.0,
+        lacunarity: 2.2,
         baseColor: new THREE.Color(0x8c8c8c),
         secondaryColor: new THREE.Color(0x5a5a5a),
         gravity: 3.7,
     },
     venus: {
-        noiseFrequency: 1.2,
-        amplitude: 0.06,
-        octaves: 4,
-        persistence: 0.6,
+        noiseFrequency: 0.8,
+        amplitude: 0.2,  // Volcanic highlands
+        octaves: 6,
+        persistence: 0.55,
         lacunarity: 2.0,
         baseColor: new THREE.Color(0xd4a574),
         secondaryColor: new THREE.Color(0xc98b4a),
@@ -44,22 +44,22 @@ export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
         gravity: 8.87,
     },
     earth: {
-        noiseFrequency: 1.5,
-        amplitude: 0.1,
-        octaves: 6,
+        noiseFrequency: 1.0,
+        amplitude: 0.3,  // Mountains, valleys, varied terrain
+        octaves: 8,
         persistence: 0.5,
         lacunarity: 2.2,
         baseColor: new THREE.Color(0x3d8c40),      // Green land
         secondaryColor: new THREE.Color(0x8b6914), // Brown mountains
-        waterLevel: 0.4,
+        waterLevel: 0.35,
         waterColor: new THREE.Color(0x1a5f7a),
         atmosphereColor: new THREE.Color(0x87ceeb),
         gravity: 9.81,
     },
     mars: {
-        noiseFrequency: 1.3,
-        amplitude: 0.12,
-        octaves: 5,
+        noiseFrequency: 0.9,
+        amplitude: 0.35,  // Olympus Mons-style dramatic terrain
+        octaves: 7,
         persistence: 0.55,
         lacunarity: 2.1,
         baseColor: new THREE.Color(0xc1440e),
@@ -68,9 +68,9 @@ export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
         gravity: 3.71,
     },
     moon: {
-        noiseFrequency: 2.5,
-        amplitude: 0.07,
-        octaves: 5,
+        noiseFrequency: 1.8,
+        amplitude: 0.2,  // Craters and maria
+        octaves: 6,
         persistence: 0.5,
         lacunarity: 2.0,
         baseColor: new THREE.Color(0xa0a0a0),
@@ -313,12 +313,13 @@ export function createTerrainMesh(
 }
 
 /**
- * Creates a spherical terrain mesh (for viewing from space)
+ * Creates a spherical terrain mesh for walking around a planet
+ * Uses higher resolution and proper height displacement
  */
 export function createSphericalTerrain(
     planetName: string,
-    radius: number,
-    resolution: number = 64
+    radius: number = 100,
+    resolution: number = 128
 ): THREE.Mesh {
     const config = TERRAIN_CONFIGS[planetName] || TERRAIN_CONFIGS.earth;
     const generator = new TerrainGenerator(config, planetName.length * 1000);
@@ -334,15 +335,21 @@ export function createSphericalTerrain(
         const z = positions.getZ(i);
 
         // Convert to spherical coordinates
-        const theta = Math.atan2(y, x);
-        const phi = Math.acos(z / radius);
+        const r = Math.sqrt(x * x + y * y + z * z);
+        const theta = Math.atan2(z, x);
+        const phi = Math.acos(y / r);
 
         const height = generator.getSphericalHeight(theta, phi);
-        const displacement = 1 + height;
+        const displacement = 1 + height * 0.5; // Scale down height for walkable terrain
 
-        positions.setX(i, x * displacement);
-        positions.setY(i, y * displacement);
-        positions.setZ(i, z * displacement);
+        // Apply displacement along the normal (radial direction)
+        const nx = x / r;
+        const ny = y / r;
+        const nz = z / r;
+
+        positions.setX(i, nx * radius * displacement);
+        positions.setY(i, ny * radius * displacement);
+        positions.setZ(i, nz * radius * displacement);
 
         // Get color for this height
         const color = generator.getColor(height);
@@ -359,7 +366,85 @@ export function createSphericalTerrain(
         metalness: 0.05,
     });
 
-    return new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.isSphericalTerrain = true;
+    mesh.userData.radius = radius;
+
+    return mesh;
+}
+
+/**
+ * Creates a spherical water shell for planets with water
+ */
+export function createSphericalWater(
+    radius: number,
+    config: TerrainConfig
+): THREE.Mesh | null {
+    if (!config.waterLevel || !config.waterColor) return null;
+
+    const waterRadius = radius * (1 + config.waterLevel * config.amplitude * 0.25);
+    const geometry = new THREE.SphereGeometry(waterRadius, 64, 64);
+
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            waterColor: { value: config.waterColor },
+            time: { value: 0 },
+            sunDirection: { value: new THREE.Vector3(0.5, 0.5, 0.3).normalize() },
+        },
+        vertexShader: `
+            uniform float time;
+            varying vec3 vNormal;
+            varying vec3 vWorldPosition;
+
+            void main() {
+                vNormal = normalize(normalMatrix * normal);
+
+                // Subtle wave displacement
+                vec3 pos = position;
+                float wave = sin(pos.x * 0.05 + time) * sin(pos.z * 0.05 + time * 0.8) * 0.2;
+                pos += normal * wave;
+
+                vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+                vWorldPosition = worldPosition.xyz;
+
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 waterColor;
+            uniform vec3 sunDirection;
+            uniform float time;
+            varying vec3 vNormal;
+            varying vec3 vWorldPosition;
+
+            void main() {
+                vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+
+                // Fresnel effect
+                float fresnel = pow(1.0 - max(dot(viewDirection, vNormal), 0.0), 3.0);
+
+                // Sun reflection
+                vec3 reflectDir = reflect(-sunDirection, vNormal);
+                float spec = pow(max(dot(viewDirection, reflectDir), 0.0), 64.0);
+
+                vec3 skyColor = vec3(0.6, 0.8, 1.0);
+                vec3 color = mix(waterColor, skyColor, fresnel * 0.4);
+                color += vec3(1.0) * spec * 0.3;
+
+                gl_FragColor = vec4(color, 0.8);
+            }
+        `,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+    });
+
+    const water = new THREE.Mesh(geometry, material);
+    water.userData.isSphericalWater = true;
+
+    return water;
 }
 
 /**
