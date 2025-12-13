@@ -2,44 +2,57 @@
 
 * For all tasks keep the README.md, docs.md and PLAN.md updated accordingly
 
-## Phase 1: ✅ COMPLETED
+## Phase 4: Visual Enhancements (Recommended Next)
+*Complexity: Medium | Impact: High*
 
-* Code cleanup
-  * ✅ Removed dead code (`app.ts`, `lib/game/` folder)
-  * ✅ Removed unused SCALE properties
-  * ✅ Checked for obvious bugs - none found
-  * ✅ Checked for code smells - minor duplication acceptable
-  * ✅ Checked for code complexity - acceptable
-* UI Cleanup
-  * ✅ Fixed Explore button visibility (flexbox layout)
+- [ ] **Asteroid belt** between Mars and Jupiter
+  - Procedural asteroid generation using instanced meshes
+  - Random sizes, rotations, orbital speeds
+  - ~1000-5000 small rocks for performance
+- [ ] **Comet trails**
+  - Particle system for tail effect
+  - Elliptical orbits crossing inner solar system
+  - Glow shader for coma
 
-## Phase 2:
+## Phase 5: Extended Solar System
+*Complexity: Medium | Impact: Medium*
 
-* UI Optimization
-  * Make limit so the user cannot zoom out infinite
-  * Make limit so the user cannot zoom in infinite
-  * Initial view should be closer (sun is very tiny after reload)
-* UX Optimization
-  * Make it easier to click on planets (bigger hitbox)
-  * Make enter key to enter last planet in information view (not surface)
-    * Second enter will go to surface view
-    * Add to Controls Hint
-  * If in information view we can jump to other planets with arrow left, right
-    * So we can navigate between planets in information view
-    * Add to Controls Hint
-  * Show names of planets and moons when pressing i (for info)
-    * Add to Controls Hint
+- [ ] **Kuiper belt objects** (Pluto, Eris, Makemake, Haumea)
+  - Add dwarf planets with orbital data
+  - Extend camera max distance
+  - Add to planet navigation
+- [ ] **Spacecraft/satellite models**
+  - ISS orbiting Earth
+  - Voyager probes at outer edges
+  - Simple 3D models or sprites
 
-## Phase 3:
-* Make plan for Future Ideas (see below)
+## Phase 6: Surface Improvements
+*Complexity: High | Impact: Medium*
 
-### Future Ideas
+- [ ] **Day/night cycle** on planet surfaces
+  - Sun position affects lighting
+  - Dynamic shadows
+  - City lights on night side (Earth)
+- [ ] **Improved terrain generation**
+  - Biome-specific features
+  - Water reflections
+  - Atmospheric scattering
 
-- [ ] Asteroid belt between Mars and Jupiter
-- [ ] Kuiper belt objects (Pluto, Eris)
-- [ ] Comet trails
-- [ ] Spacecraft/satellite models
-- [ ] Day/night cycle on planet surfaces
-- [ ] Multiplayer support (WebSocket reconnection)
-- [ ] VR support with WebXR
-- [ ] Sound effects and ambient music
+## Phase 7: Audio Experience
+*Complexity: Low | Impact: Medium*
+
+- [ ] **Sound effects**
+  - UI feedback sounds
+  - Ambient space sounds
+  - Planet-specific atmospheres
+- [ ] **Background music**
+  - Ambient space soundtrack
+  - Volume controls
+  - Mute option
+
+### Priority Recommendation
+
+1. **Phase 4** - Best visual impact for effort
+2. **Phase 7** - Quick win, improves immersion
+3. **Phase 5** - Expands content
+4. **Phase 6** - Deepens surface exploration

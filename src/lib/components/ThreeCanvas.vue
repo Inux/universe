@@ -9,8 +9,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useThreeScene } from '../composables/useThreeScene';
+
+const props = defineProps<{
+  showLabels?: boolean;
+}>();
 
 const emit = defineEmits<{
   planetSelect: [planetName: string];
@@ -27,10 +31,16 @@ const {
   selectedPlanet,
   handleClick,
   selectPlanet,
-  resetView
+  resetView,
+  setLabelsVisible
 } = useThreeScene(canvasContainer, {
   onPlanetSelect: (planetName) => emit('planetSelect', planetName),
   onBackgroundClick: () => emit('backgroundClick')
+});
+
+// Watch for label visibility changes
+watch(() => props.showLabels, (show) => {
+  setLabelsVisible(show ?? false);
 });
 
 defineExpose({

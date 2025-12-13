@@ -4,6 +4,7 @@
     <ThreeCanvas
       v-show="!surfaceViewActive"
       ref="threeCanvas"
+      :showLabels="showPlanetLabels"
       @planet-select="handlePlanetSelect"
       @background-click="handleBackgroundClick"
     />
@@ -45,6 +46,10 @@ const selectedPlanet = ref<string | null>(null);
 const infoPanelVisible = ref(false);
 const surfaceViewActive = ref(false);
 const shouldEnterSurface = ref(false);
+const showPlanetLabels = ref(false);
+
+// Planet order for arrow key navigation
+const PLANET_ORDER = ['sun', 'mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 
 const isLoading = computed(() => threeCanvas.value?.isLoading ?? true);
 
@@ -78,13 +83,60 @@ function handleSurfaceExit() {
   }, 100);
 }
 
+function navigatePlanet(direction: 'prev' | 'next') {
+  if (!selectedPlanet.value) return;
+
+  const currentIndex = PLANET_ORDER.indexOf(selectedPlanet.value);
+  if (currentIndex === -1) return;
+
+  let newIndex: number;
+  if (direction === 'prev') {
+    newIndex = currentIndex > 0 ? currentIndex - 1 : PLANET_ORDER.length - 1;
+  } else {
+    newIndex = currentIndex < PLANET_ORDER.length - 1 ? currentIndex + 1 : 0;
+  }
+
+  const newPlanet = PLANET_ORDER[newIndex];
+  selectedPlanet.value = newPlanet;
+  threeCanvas.value?.selectPlanet(newPlanet);
+}
+
 function handleKeyDown(event: KeyboardEvent) {
-  // Don't handle escape if in surface view (SurfaceView handles it)
+  // Don't handle keys if in surface view (SurfaceView handles it)
   if (surfaceViewActive.value) return;
 
-  if (event.key === 'Escape') {
-    infoPanelVisible.value = false;
-    threeCanvas.value?.resetView();
+  switch (event.key) {
+    case 'Escape':
+      infoPanelVisible.value = false;
+      threeCanvas.value?.resetView();
+      break;
+
+    case 'Enter':
+      if (infoPanelVisible.value && selectedPlanet.value && selectedPlanet.value !== 'sun') {
+        // Second Enter goes to surface view
+        handleExplore(selectedPlanet.value);
+      } else if (selectedPlanet.value) {
+        // First Enter opens info panel
+        infoPanelVisible.value = true;
+      }
+      break;
+
+    case 'ArrowLeft':
+      if (infoPanelVisible.value) {
+        navigatePlanet('prev');
+      }
+      break;
+
+    case 'ArrowRight':
+      if (infoPanelVisible.value) {
+        navigatePlanet('next');
+      }
+      break;
+
+    case 'i':
+    case 'I':
+      showPlanetLabels.value = !showPlanetLabels.value;
+      break;
   }
 }
 
