@@ -115,8 +115,12 @@ function handleKeyDown(event: KeyboardEvent) {
       if (infoPanelVisible.value && selectedPlanet.value && selectedPlanet.value !== 'sun') {
         // Second Enter goes to surface view
         handleExplore(selectedPlanet.value);
-      } else if (selectedPlanet.value) {
-        // First Enter opens info panel and moves camera to planet
+      } else {
+        // First Enter opens info panel
+        // If no planet selected, select sun first
+        if (!selectedPlanet.value) {
+          selectedPlanet.value = 'sun';
+        }
         infoPanelVisible.value = true;
         threeCanvas.value?.selectPlanet(selectedPlanet.value);
       }
