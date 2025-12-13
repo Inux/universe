@@ -404,9 +404,11 @@ export function updateOrbitalPositions(
             body.mesh.position.z = Math.sin(angle) * scaledDistance - selectedPosition.z;
         }
 
-        // Planet rotation
-        const rotationSpeed = (2 * Math.PI) / (data.rotationPeriod * 60 * 60);
-        body.mesh.rotation.y += rotationSpeed * SCALE.TIME / 60;
+        // Planet rotation (rotationPeriod is in hours)
+        // One full rotation (2π) per rotationPeriod hours
+        // Divide by a factor to slow it down for visual appeal
+        const rotationSpeed = (2 * Math.PI) / (data.rotationPeriod * 3600); // radians per second
+        body.mesh.rotation.y += rotationSpeed * 0.1; // Slow factor for visual
 
         // Update moons
         if (data.moons) {
@@ -422,7 +424,7 @@ export function updateOrbitalPositions(
                 moon.position.z = body.mesh.position.z + Math.sin(moonAngle) * moonDistance;
                 moon.position.y = body.mesh.position.y;
 
-                moon.rotation.y += moonOrbitalSpeed * SCALE.TIME / 60;
+                moon.rotation.y += 0.01; // Slow moon rotation for visual
             }
         }
     }
