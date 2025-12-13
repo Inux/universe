@@ -168,7 +168,7 @@ function formatRotation(hours: number | undefined): string {
   right: 30px;
   transform: translateY(-50%);
   width: 320px;
-  max-height: 80vh;
+  max-height: 85vh;
   background: linear-gradient(145deg, rgba(10, 15, 30, 0.95), rgba(20, 25, 45, 0.95));
   border: 1px solid rgba(100, 150, 255, 0.3);
   border-radius: 16px;
@@ -178,6 +178,8 @@ function formatRotation(hours: number | undefined): string {
   backdrop-filter: blur(20px);
   overflow: hidden;
   z-index: 1000;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel-header {
@@ -230,7 +232,8 @@ function formatRotation(hours: number | undefined): string {
 .panel-content {
   padding: 20px 24px;
   overflow-y: auto;
-  max-height: calc(80vh - 200px);
+  flex: 1;
+  min-height: 0;
 }
 
 section {
@@ -294,6 +297,7 @@ h3 {
 .panel-footer {
   padding: 16px 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .explore-btn {

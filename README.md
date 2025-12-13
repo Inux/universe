@@ -1,14 +1,14 @@
 # Universe Browser Game
 
-A browser-based 3D solar system explorer built with Three.js and TypeScript.
+A browser-based 3D solar system explorer built with Vue.js, Three.js, and TypeScript.
 
 ## Features
 
 - **Complete Solar System** - All 8 planets with accurate relative sizes and orbital mechanics
 - **Moons** - Major moons for each planet (Earth's Moon, Galilean moons, Titan, etc.)
 - **Visual Effects** - Procedural starfield, planet atmospheres, Saturn's rings, sun glow
-- **Physics Simulation** - Local gravity, walking, jumping mechanics
-- **Camera Controls** - Orbit controls and player-following camera modes
+- **Surface Exploration** - Procedural terrain generation with planet-specific gravity
+- **Camera Controls** - Smooth orbit controls with planet focus transitions
 
 ## Quick Start
 
@@ -19,14 +19,21 @@ npm run dev
 
 ## Controls
 
+### Solar System View
 | Key | Action |
 |-----|--------|
 | **Click** | Select planet to focus |
-| **Mouse** | Orbit camera |
-| **WASD** | Move player |
-| **Space** | Jump |
-| **L** | Locate player |
+| **Mouse Drag** | Orbit camera |
+| **Scroll** | Zoom in/out |
 | **ESC** | Return to solar system view |
+
+### Surface View
+| Key | Action |
+|-----|--------|
+| **WASD** | Move around |
+| **Space** | Jump |
+| **Mouse** | Look around |
+| **ESC** | Exit to orbit view |
 
 ## Documentation
 
@@ -41,25 +48,26 @@ universe/
 │   ├── main.ts             # Vue app entry point
 │   ├── App.vue             # Root Vue component
 │   ├── style.css           # Global styles
-│   ├── vite-env.d.ts       # Vite type declarations
 │   └── lib/
 │       ├── components/     # Vue components
 │       │   ├── ThreeCanvas.vue
 │       │   ├── InfoPanel.vue
+│       │   ├── SurfaceView.vue
 │       │   └── ControlsHint.vue
 │       ├── composables/    # Vue composables
-│       │   └── useThreeScene.ts
+│       │   ├── useThreeScene.ts
+│       │   └── useSurfaceView.ts
 │       ├── three/          # Three.js modules
 │       │   ├── solarSystem.ts
+│       │   ├── terrain.ts
 │       │   ├── skybox.ts
 │       │   ├── shaders.ts
-│       │   └── rings.ts
+│       │   ├── rings.ts
 │       │   └── CameraTransition.ts
-│       ├── game/           # Game logic
-│       │   ├── models.ts
-│       │   └── physics.ts
 │       └── data/           # Static data
 │           └── planetData.ts
+├── public/
+│   └── textures/           # Planet textures
 ├── index.html
 ├── package.json
 ├── tsconfig.json
@@ -68,10 +76,11 @@ universe/
 
 ## Tech Stack
 
+- **Vue.js 3** - Reactive UI framework
 - **Three.js** - 3D rendering
-- **Vue.js** - Reactive UI framework
 - **TypeScript** - Type-safe JavaScript
 - **Vite** - Build tool and dev server
+- **simplex-noise** - Procedural terrain generation
 
 ## License
 
