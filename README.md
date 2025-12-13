@@ -38,14 +38,29 @@ npm run dev
 ```
 universe/
 ├── src/
-│   ├── app.ts           # Main game client, render loop, input handling
-│   ├── models.ts        # TypeScript interfaces (Player, Vector3, etc.)
-│   ├── physics.ts       # Physics simulation (gravity, movement)
-│   ├── skybox.ts        # Procedural starfield and space background
-│   ├── shaders.ts       # GLSL shaders for atmospheres
-│   ├── rings.ts         # Saturn and Uranus ring generation
-│   └── solarSystem.ts   # Planet data and creation logic
-├── index.html           # Entry point
+│   ├── main.ts             # Vue app entry point
+│   ├── App.vue             # Root Vue component
+│   ├── style.css           # Global styles
+│   ├── vite-env.d.ts       # Vite type declarations
+│   └── lib/
+│       ├── components/     # Vue components
+│       │   ├── ThreeCanvas.vue
+│       │   ├── InfoPanel.vue
+│       │   └── ControlsHint.vue
+│       ├── composables/    # Vue composables
+│       │   └── useThreeScene.ts
+│       ├── three/          # Three.js modules
+│       │   ├── solarSystem.ts
+│       │   ├── skybox.ts
+│       │   ├── shaders.ts
+│       │   └── rings.ts
+│       │   └── CameraTransition.ts
+│       ├── game/           # Game logic
+│       │   ├── models.ts
+│       │   └── physics.ts
+│       └── data/           # Static data
+│           └── planetData.ts
+├── index.html
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
@@ -54,6 +69,7 @@ universe/
 ## Tech Stack
 
 - **Three.js** - 3D rendering
+- **Vue.js** - Reactive UI framework
 - **TypeScript** - Type-safe JavaScript
 - **Vite** - Build tool and dev server
 
