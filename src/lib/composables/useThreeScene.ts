@@ -184,18 +184,6 @@ export function useThreeScene(
             }
         }
 
-        // Update asteroid belt
-        if (solarSystemObjects.value.asteroidBelt) {
-            solarSystemObjects.value.asteroidBelt.update(time);
-        }
-
-        // Update comets
-        if (solarSystemObjects.value.comets) {
-            for (const comet of solarSystemObjects.value.comets) {
-                comet.update(time);
-            }
-        }
-
         if (controls.value) {
             controls.value.target.set(0, 0, 0);
         }

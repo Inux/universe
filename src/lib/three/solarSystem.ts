@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { createAtmosphere, createSunGlow, createSunCorona, ATMOSPHERE_CONFIGS } from './shaders';
 import { createPlanetRings, createUranusRings, RING_CONFIGS } from './rings';
-import { createAsteroidBelt, createComets } from './asteroids';
 
 export interface MoonData {
     name: string;
@@ -179,8 +178,6 @@ export interface CelestialBody {
 export interface SolarSystemObjects {
     planets: Map<string, CelestialBody>;
     moons: Map<string, THREE.Mesh>;
-    asteroidBelt?: { mesh: THREE.InstancedMesh; update: (time: number) => void };
-    comets?: { group: THREE.Group; update: (time: number) => void }[];
 }
 
 /**
@@ -214,13 +211,7 @@ export async function createSolarSystem(
         }
     }
 
-    // Create asteroid belt (using points/particles)
-    const asteroidBelt = createAsteroidBelt(scene, distanceScale);
-
-    // Create comets
-    const comets = createComets(scene, distanceScale);
-
-    return { planets, moons, asteroidBelt, comets };
+    return { planets, moons };
 }
 
 async function loadTextureWithFallback(
