@@ -47,20 +47,24 @@ export function useSurfaceView(
     let isGrounded = false;
 
     function initScene() {
-        if (!containerRef.value) return;
+        if (!containerRef.value) {
+            console.error('SurfaceView: Container ref is null');
+            return false;
+        }
+
+        // Get container dimensions, fallback to window if 0
+        const width = containerRef.value.clientWidth || window.innerWidth;
+        const height = containerRef.value.clientHeight || window.innerHeight;
 
         scene.value = new THREE.Scene();
+        scene.value.background = new THREE.Color(0x111122);
 
-        camera.value = new THREE.PerspectiveCamera(
-            75,
-            containerRef.value.clientWidth / containerRef.value.clientHeight,
-            0.1,
-            2000
-        );
-        camera.value.position.set(0, 10, 30);
+        camera.value = new THREE.PerspectiveCamera(75, width / height, 0.1, 2000);
+        camera.value.position.set(0, 20, 50);
+        camera.value.lookAt(0, 0, 0);
 
         renderer.value = new THREE.WebGLRenderer({ antialias: true });
-        renderer.value.setSize(containerRef.value.clientWidth, containerRef.value.clientHeight);
+        renderer.value.setSize(width, height);
         renderer.value.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.value.shadowMap.enabled = true;
         renderer.value.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -72,12 +76,13 @@ export function useSurfaceView(
         controls.value.maxPolarAngle = Math.PI * 0.49;
         controls.value.minDistance = 5;
         controls.value.maxDistance = 200;
+        controls.value.target.set(0, 0, 0);
 
         // Lighting
-        const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+        const ambientLight = new THREE.AmbientLight(0x606060, 0.8);
         scene.value.add(ambientLight);
 
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
         sunLight.position.set(100, 100, 50);
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 2048;
@@ -91,8 +96,10 @@ export function useSurfaceView(
         scene.value.add(sunLight);
 
         // Hemisphere light for better ambient
-        const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.4);
+        const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.6);
         scene.value.add(hemiLight);
+
+        return true;
     }
 
     function loadPlanetSurface(planetName: string) {
@@ -174,43 +181,59 @@ export function useSurfaceView(
     }
 
     function updatePhysics() {
+        if (!camera.value || !controls.value) return;
+
         const delta = 1 / 60;
 
-        // Apply gravity
+        // Get camera forward/right vectors for movement relative to camera
+        const cameraDirection = new THREE.Vector3();
+        camera.value.getWorldDirection(cameraDirection);
+        cameraDirection.y = 0;
+        cameraDirection.normalize();
+
+        const cameraRight = new THREE.Vector3();
+        cameraRight.crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0)).normalize();
+
+        // Apply movement relative to camera direction
+        const moveSpeed = 30;
+        const moveDirection = new THREE.Vector3();
+
+        if (moveState.forward) moveDirection.add(cameraDirection);
+        if (moveState.backward) moveDirection.sub(cameraDirection);
+        if (moveState.left) moveDirection.sub(cameraRight);
+        if (moveState.right) moveDirection.add(cameraRight);
+
+        if (moveDirection.length() > 0) {
+            moveDirection.normalize();
+
+            // Move the controls target (which moves the camera)
+            const movement = moveDirection.multiplyScalar(moveSpeed * delta);
+            controls.value.target.add(movement);
+            camera.value.position.add(movement);
+        }
+
+        // Apply gravity to camera height
         if (!isGrounded) {
             playerVelocity.y -= currentGravity * delta;
         }
 
-        // Apply movement
-        const moveSpeed = 10;
-        const direction = new THREE.Vector3();
-
-        if (moveState.forward) direction.z -= 1;
-        if (moveState.backward) direction.z += 1;
-        if (moveState.left) direction.x -= 1;
-        if (moveState.right) direction.x += 1;
-
-        if (direction.length() > 0) {
-            direction.normalize();
-            playerVelocity.x = direction.x * moveSpeed;
-            playerVelocity.z = direction.z * moveSpeed;
-        } else {
-            playerVelocity.x *= 0.9;
-            playerVelocity.z *= 0.9;
-        }
-
         // Jump
         if (moveState.jump && isGrounded) {
-            playerVelocity.y = Math.sqrt(2 * currentGravity * 3); // Jump height of 3 units
+            playerVelocity.y = Math.sqrt(2 * currentGravity * 5); // Jump height
             isGrounded = false;
+            moveState.jump = false; // Prevent continuous jumping
         }
 
-        // Update position
-        playerPosition.value.add(playerVelocity.clone().multiplyScalar(delta));
+        // Apply vertical velocity
+        const verticalMovement = playerVelocity.y * delta;
+        controls.value.target.y += verticalMovement;
+        camera.value.position.y += verticalMovement;
 
-        // Ground collision (simplified)
-        if (playerPosition.value.y < 2) {
-            playerPosition.value.y = 2;
+        // Ground collision - keep camera above terrain
+        const minHeight = 5;
+        if (controls.value.target.y < minHeight) {
+            controls.value.target.y = minHeight;
+            camera.value.position.y = Math.max(camera.value.position.y, minHeight + 10);
             playerVelocity.y = 0;
             isGrounded = true;
         }
@@ -253,7 +276,14 @@ export function useSurfaceView(
         if (isActive.value) return;
 
         isActive.value = true;
-        initScene();
+
+        const sceneReady = initScene();
+        if (!sceneReady) {
+            console.error('Failed to initialize scene');
+            isActive.value = false;
+            return;
+        }
+
         loadPlanetSurface(planetName);
         animate();
 
