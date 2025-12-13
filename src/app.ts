@@ -23,8 +23,7 @@ interface PlanetData {
 }
 
 const SCALE = {
-    DISTANCE: 1/100000,    // Less extreme scaling for distances
-    SIZE: 1/100,          // Less extreme scaling for sizes
+    DISTANCE: 1/100000,    // Base distance scaling
     TIME: 1000000,        // Speed up time
     MIN_HEIGHT: 0.005,    // 5 meters minimum height
     MAX_HEIGHT: 5e8,      // 500,000 km maximum height
@@ -37,6 +36,21 @@ const SCALE = {
     MOVEMENT_SPEED: 0.1,   // Player movement speed
     MOON_SCALE: 1/2       // Scale moons smaller than planets but more visible
 };
+
+// Logarithmic size scaling - makes all planets visible while preserving relative differences
+// Formula: visualRadius = baseSize * log(1 + realRadius / referenceRadius)
+const REFERENCE_RADIUS = 6371; // Earth's radius as reference (km)
+const BASE_VISUAL_SIZE = 50;   // Base visual size multiplier
+const MIN_PLANET_SIZE = 20;    // Minimum visible size for small planets
+const MAX_PLANET_SIZE = 400;   // Maximum size to prevent giant planets from dominating
+
+function getLogarithmicSize(realRadius: number): number {
+    const logSize = BASE_VISUAL_SIZE * Math.log(1 + realRadius / REFERENCE_RADIUS);
+    return Math.max(MIN_PLANET_SIZE, Math.min(MAX_PLANET_SIZE, logSize));
+}
+
+// Optimal distance scaling - compress outer planets more to fit all in view
+const DISTANCE_SCALE_FACTOR = 0.8; // Fixed optimal distance scale
 
 const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
     sun: {
@@ -163,7 +177,6 @@ class GameClient {
     private planets: Map<string, THREE.Mesh>;
     private moons: Map<string, THREE.Mesh>;
     private hudElement!: HTMLDivElement;
-    private distanceScaleSlider!: HTMLInputElement;
     private distanceScaleValue: number;
     private textureLoader: THREE.TextureLoader;
     private currentPlanet: string = 'earth';
@@ -193,7 +206,7 @@ class GameClient {
         this.movement = { x: 0, y: 0, z: 0 };
         this.planets = new Map();
         this.moons = new Map();
-        this.distanceScaleValue = 1.0;
+        this.distanceScaleValue = DISTANCE_SCALE_FACTOR;
         this.textureLoader = new THREE.TextureLoader();
         this.loadingElement = document.getElementById('loading') as HTMLDivElement;
         this.raycaster = new THREE.Raycaster();
@@ -250,8 +263,9 @@ class GameClient {
     }
 
     private createPlayerMesh(): THREE.Mesh {
+        const playerSize = getLogarithmicSize(SOLAR_SYSTEM.earth.radius) * 0.05; // 5% of Earth's visual size
         const geometry = new THREE.SphereGeometry(
-            SOLAR_SYSTEM.earth.radius * SCALE.SIZE * SCALE.PLAYER,
+            playerSize,
             32, 32
         );
         const material = new THREE.MeshPhongMaterial({
@@ -287,7 +301,7 @@ class GameClient {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.minDistance = SOLAR_SYSTEM.earth.radius * SCALE.SIZE + SCALE.MIN_HEIGHT;
+        this.controls.minDistance = getLogarithmicSize(SOLAR_SYSTEM.earth.radius) * 0.1;
         this.controls.maxDistance = SCALE.MAX_HEIGHT;
         this.controls.enablePan = true;
         this.controls.enableZoom = true;
@@ -372,7 +386,7 @@ class GameClient {
             this.localPlayer.position.z
         ).normalize();
 
-        const surfaceHeight = SOLAR_SYSTEM.earth.radius * SCALE.SIZE;
+        const surfaceHeight = getLogarithmicSize(SOLAR_SYSTEM.earth.radius);
         this.playerMesh.position.copy(surfaceNormal.multiplyScalar(surfaceHeight));
 
         this.lastPlayerPosition = this.playerMesh.position.clone();
@@ -390,40 +404,25 @@ class GameClient {
         this.hudElement.style.borderRadius = '5px';
         document.body.appendChild(this.hudElement);
 
-        // Add distance scale slider
-        const sliderContainer = document.createElement('div');
-        sliderContainer.style.position = 'fixed';
-        sliderContainer.style.bottom = '20px';
-        sliderContainer.style.left = '20px';
-        sliderContainer.style.color = 'white';
-        sliderContainer.style.fontFamily = 'Arial, sans-serif';
-        sliderContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-        sliderContainer.style.padding = '10px';
-        sliderContainer.style.borderRadius = '5px';
-
-        const sliderLabel = document.createElement('div');
-        sliderLabel.textContent = `Distance Scale: ${this.distanceScaleValue.toFixed(2)}x`;
-        sliderLabel.style.marginBottom = '5px';
-
-        this.distanceScaleSlider = document.createElement('input');
-        this.distanceScaleSlider.type = 'range';
-        this.distanceScaleSlider.min = '0.1';
-        this.distanceScaleSlider.max = '10.0';
-        this.distanceScaleSlider.step = '0.1';
-        this.distanceScaleSlider.value = this.distanceScaleValue.toString();
-        this.distanceScaleSlider.style.width = '200px';
-
-        this.distanceScaleSlider.addEventListener('input', (e) => {
-            this.distanceScaleValue = parseFloat((e.target as HTMLInputElement).value);
-            sliderLabel.textContent = `Distance Scale: ${this.distanceScaleValue.toFixed(2)}x`;
-
-            // Update all positions when scale changes
-            this.updateAllPositions();
-        });
-
-        sliderContainer.appendChild(sliderLabel);
-        sliderContainer.appendChild(this.distanceScaleSlider);
-        document.body.appendChild(sliderContainer);
+        // Controls hint
+        const controlsHint = document.createElement('div');
+        controlsHint.style.position = 'fixed';
+        controlsHint.style.bottom = '20px';
+        controlsHint.style.left = '20px';
+        controlsHint.style.color = 'white';
+        controlsHint.style.fontFamily = 'Arial, sans-serif';
+        controlsHint.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        controlsHint.style.padding = '10px';
+        controlsHint.style.borderRadius = '5px';
+        controlsHint.style.fontSize = '12px';
+        controlsHint.innerHTML = `
+            <div><b>Controls</b></div>
+            <div>Click planet to focus</div>
+            <div>ESC - View all</div>
+            <div>L - Locate player</div>
+            <div>WASD - Move | Space - Jump</div>
+        `;
+        document.body.appendChild(controlsHint);
     }
 
     private updateHUD() {
@@ -431,12 +430,11 @@ class GameClient {
         const height = this.calculateHeightAboveSurface();
 
         this.hudElement.innerHTML = `
-            <div>Selected Body: ${currentPlanetData.name}</div>
-            <div>Height: ${height.toFixed(2)} km</div>
-            <div>Distance from Sun: ${(currentPlanetData.distanceFromSun/1e6).toFixed(1)} million km</div>
-            <div>Orbital Period: ${currentPlanetData.orbitalPeriod} days</div>
-            <div><small>Click on a planet to focus, ESC to view all</small></div>
-            <div><small>Press 'L' to locate player</small></div>
+            <div><b>${currentPlanetData.name}</b></div>
+            <div>Radius: ${currentPlanetData.radius.toLocaleString()} km</div>
+            <div>Distance: ${(currentPlanetData.distanceFromSun/1e6).toFixed(1)}M km</div>
+            <div>Year: ${currentPlanetData.orbitalPeriod} days</div>
+            <div>Day: ${Math.abs(currentPlanetData.rotationPeriod).toFixed(1)} hours</div>
         `;
     }
 
@@ -446,7 +444,8 @@ class GameClient {
         if (!planetMesh) return 0;
 
         const distanceFromCenter = this.camera.position.distanceTo(planetMesh.position);
-        const heightInKm = (distanceFromCenter / SCALE.SIZE) - planetData.radius;
+        const planetVisualSize = getLogarithmicSize(planetData.radius);
+        const heightInKm = ((distanceFromCenter - planetVisualSize) / planetVisualSize) * planetData.radius;
 
         if (heightInKm < 0.005) return 0.005; // Minimum 5 meters
         return heightInKm;
@@ -465,8 +464,9 @@ class GameClient {
 
     private async initSolarSystem() {
         try {
-            // Create sun
-            const sunGeometry = new THREE.SphereGeometry(SOLAR_SYSTEM.sun.radius * SCALE.SIZE, 64, 64);
+            // Create sun with logarithmic sizing
+            const sunVisualSize = getLogarithmicSize(SOLAR_SYSTEM.sun.radius);
+            const sunGeometry = new THREE.SphereGeometry(sunVisualSize, 64, 64);
             const sunTexture = await this.loadTextureWithFallback(SOLAR_SYSTEM.sun.texture, SOLAR_SYSTEM.sun.color);
             const sunMaterial = new THREE.MeshBasicMaterial({
                 color: SOLAR_SYSTEM.sun.color,
@@ -480,11 +480,12 @@ class GameClient {
             const sunLight = new THREE.PointLight(0xffffff, 2);
             sun.add(sunLight);
 
-            // Create planets
+            // Create planets with logarithmic sizing
             for (const [name, data] of Object.entries(SOLAR_SYSTEM)) {
                 if (name === 'sun') continue;
 
-                const planetGeometry = new THREE.SphereGeometry(data.radius * SCALE.SIZE, 32, 32);
+                const planetVisualSize = getLogarithmicSize(data.radius);
+                const planetGeometry = new THREE.SphereGeometry(planetVisualSize, 32, 32);
                 const texture = await this.loadTextureWithFallback(data.texture, data.color);
                 const planetMaterial = new THREE.MeshPhongMaterial({
                     color: texture ? 0xffffff : data.color, // Use color if texture failed
@@ -505,11 +506,12 @@ class GameClient {
                     this.earth = planet;
                 }
 
-                // Create moons for this planet
+                // Create moons for this planet with logarithmic sizing
                 if (data.moons) {
                     for (const moonData of data.moons) {
+                        const moonVisualSize = Math.max(getLogarithmicSize(moonData.radius) * SCALE.MOON_SCALE, 5);
                         const moonGeometry = new THREE.SphereGeometry(
-                            Math.max(moonData.radius * SCALE.SIZE * SCALE.MOON_SCALE, 0.01), // Ensure minimum visible size
+                            moonVisualSize,
                             16, 16
                         );
                         const moonMaterial = new THREE.MeshPhongMaterial({
@@ -535,7 +537,7 @@ class GameClient {
             // Set initial camera position relative to Earth
             const earth = this.planets.get('earth')!;
             this.camera.position.copy(earth.position);
-            this.camera.position.y += SOLAR_SYSTEM.earth.radius * SCALE.SIZE * 2;
+            this.camera.position.y += getLogarithmicSize(SOLAR_SYSTEM.earth.radius) * 2;
             this.camera.lookAt(earth.position);
 
         } catch (error) {
@@ -710,7 +712,7 @@ class GameClient {
         } else {
             // Move camera to view the selected planet
             const planetData = SOLAR_SYSTEM[planetName];
-            const distance = planetData.radius * SCALE.SIZE * 10;
+            const distance = getLogarithmicSize(planetData.radius) * 3;
             const offset = new THREE.Vector3(distance, distance, distance);
             this.camera.position.copy(offset);
         }
@@ -746,7 +748,7 @@ class GameClient {
 
         // Calculate camera position
         const playerPos = this.lastPlayerPosition.clone();
-        const distance = SOLAR_SYSTEM.earth.radius * SCALE.SIZE;
+        const distance = getLogarithmicSize(SOLAR_SYSTEM.earth.radius);
 
         // Position camera behind and above player
         const cameraPos = playerPos.clone()
