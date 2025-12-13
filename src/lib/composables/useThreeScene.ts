@@ -184,6 +184,18 @@ export function useThreeScene(
             }
         }
 
+        // Update asteroid belt
+        if (solarSystemObjects.value.asteroidBelt) {
+            solarSystemObjects.value.asteroidBelt.update(time);
+        }
+
+        // Update comets
+        if (solarSystemObjects.value.comets) {
+            for (const comet of solarSystemObjects.value.comets) {
+                comet.update(time);
+            }
+        }
+
         if (controls.value) {
             controls.value.target.set(0, 0, 0);
         }
@@ -272,17 +284,12 @@ export function useThreeScene(
         updateOrbits();
         controls.value.target.set(0, 0, 0);
 
-        let targetPosition: THREE.Vector3;
         const lookAt = new THREE.Vector3(0, 0, 0);
 
-        if (planetName === 'sun') {
-            const maxDistance = SOLAR_SYSTEM.neptune?.distanceFromSun || SOLAR_SYSTEM.earth.distanceFromSun;
-            targetPosition = new THREE.Vector3(0, maxDistance * SCALE.DISTANCE * distanceScaleValue * 1.5, 0);
-        } else {
-            const planetData = SOLAR_SYSTEM[planetName];
-            const distance = getLogarithmicSize(planetData.radius) * 3;
-            targetPosition = new THREE.Vector3(distance, distance * 0.7, distance);
-        }
+        // Use same distance formula for all bodies including sun
+        const planetData = SOLAR_SYSTEM[planetName];
+        const distance = getLogarithmicSize(planetData.radius) * 3;
+        const targetPosition = new THREE.Vector3(distance, distance * 0.7, distance);
 
         cameraTransition.value?.transitionTo(targetPosition, lookAt, {
             duration: 1200,

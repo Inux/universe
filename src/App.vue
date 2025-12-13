@@ -116,8 +116,9 @@ function handleKeyDown(event: KeyboardEvent) {
         // Second Enter goes to surface view
         handleExplore(selectedPlanet.value);
       } else if (selectedPlanet.value) {
-        // First Enter opens info panel
+        // First Enter opens info panel and moves camera to planet
         infoPanelVisible.value = true;
+        threeCanvas.value?.selectPlanet(selectedPlanet.value);
       }
       break;
 
