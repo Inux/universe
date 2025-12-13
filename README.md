@@ -23,9 +23,12 @@ npm run dev
 | Key | Action |
 |-----|--------|
 | **Click** | Select planet to focus |
+| **Enter** | Open info panel / Enter surface |
+| **← →** | Navigate between planets (in info view) |
+| **I** | Toggle planet name labels |
 | **Mouse Drag** | Orbit camera |
 | **Scroll** | Zoom in/out |
-| **ESC** | Return to solar system view |
+| **ESC** | Close panel / Return to overview |
 
 ### Surface View
 | Key | Action |

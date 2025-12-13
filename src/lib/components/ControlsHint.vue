@@ -1,10 +1,11 @@
 <template>
   <div class="controls-hint">
     <div class="title">Controls</div>
-    <div class="control">🖱️ Click planet to focus</div>
-    <div class="control">⎋ ESC - View all</div>
-    <div class="control">📍 L - Locate player</div>
-    <div class="control">🎮 WASD - Move | Space - Jump</div>
+    <div class="control">🖱️ Click planet to select</div>
+    <div class="control">⏎ Enter - Open info / Explore</div>
+    <div class="control">◀▶ Arrows - Navigate planets</div>
+    <div class="control">ℹ️ I - Toggle planet names</div>
+    <div class="control">⎋ ESC - Close / View all</div>
   </div>
 </template>
 

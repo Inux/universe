@@ -37,10 +37,18 @@ export function useThreeScene(
 
     const textureLoader = new THREE.TextureLoader();
     const raycaster = new THREE.Raycaster();
+    raycaster.params.Line = { threshold: 10 };
     const mouse = new THREE.Vector2();
     const distanceScaleValue = DISTANCE_SCALE_FACTOR;
     let time = 0;
     let animationId: number | null = null;
+
+    // Hitbox meshes for easier clicking (invisible, larger spheres)
+    const hitboxMeshes = new Map<string, THREE.Mesh>();
+
+    // Planet label sprites
+    const labelSprites = new Map<string, THREE.Sprite>();
+    let labelsVisible = false;
 
     function initScene() {
         if (!containerRef.value) return;
@@ -68,17 +76,17 @@ export function useThreeScene(
         directionalLight.position.set(1, 1, 1);
         scene.value.add(ambientLight, directionalLight);
 
-        // Set initial camera position
-        const maxDistance = SOLAR_SYSTEM.neptune?.distanceFromSun || SOLAR_SYSTEM.earth.distanceFromSun;
-        camera.value.position.set(0, maxDistance * SCALE.DISTANCE * distanceScaleValue * 1.5, 0);
+        // Set initial camera position - closer view so sun is visible
+        const sunSize = getLogarithmicSize(SOLAR_SYSTEM.sun.radius);
+        camera.value.position.set(0, sunSize * 8, sunSize * 8);
         camera.value.lookAt(0, 0, 0);
 
-        // Create controls
+        // Create controls with reasonable zoom limits
         controls.value = new OrbitControls(camera.value, renderer.value.domElement);
         controls.value.enableDamping = true;
         controls.value.dampingFactor = 0.05;
-        controls.value.minDistance = getLogarithmicSize(SOLAR_SYSTEM.earth.radius) * 0.1;
-        controls.value.maxDistance = SCALE.MAX_HEIGHT;
+        controls.value.minDistance = getLogarithmicSize(SOLAR_SYSTEM.earth.radius) * 0.5; // Can't zoom too close
+        controls.value.maxDistance = 50000; // Reasonable max zoom out
         controls.value.enablePan = true;
         controls.value.enableZoom = true;
 
@@ -102,12 +110,45 @@ export function useThreeScene(
                 distanceScaleValue
             );
 
+            // Create invisible hitbox meshes for easier clicking
+            createHitboxes();
+
+            // Create planet labels
+            createLabels();
+
             isInitialized.value = true;
             isLoading.value = false;
         } catch (err) {
             console.error('Failed to initialize solar system:', err);
             error.value = 'Failed to load solar system';
             isLoading.value = false;
+        }
+    }
+
+    function createHitboxes() {
+        if (!scene.value || !solarSystemObjects.value) return;
+
+        // Create larger invisible spheres for each planet for easier clicking
+        const hitboxScale = 2.5; // Hitbox is 2.5x the visual size
+
+        for (const [name, body] of solarSystemObjects.value.planets.entries()) {
+            const planetData = SOLAR_SYSTEM[name];
+            const visualSize = getLogarithmicSize(planetData.radius);
+
+            const geometry = new THREE.SphereGeometry(visualSize * hitboxScale, 16, 16);
+            const material = new THREE.MeshBasicMaterial({
+                visible: false, // Invisible
+                transparent: true,
+                opacity: 0
+            });
+
+            const hitbox = new THREE.Mesh(geometry, material);
+            hitbox.userData.planetName = name;
+            hitbox.userData.isHitbox = true;
+
+            // Position will be updated in updateOrbits
+            scene.value.add(hitbox);
+            hitboxMeshes.set(name, hitbox);
         }
     }
 
@@ -123,6 +164,25 @@ export function useThreeScene(
             selectedPlanet.value,
             distanceScaleValue
         );
+
+        // Update hitbox positions to match planet positions
+        for (const [name, hitbox] of hitboxMeshes.entries()) {
+            const body = solarSystemObjects.value.planets.get(name);
+            if (body) {
+                hitbox.position.copy(body.mesh.position);
+            }
+        }
+
+        // Update label positions to float above planets
+        for (const [name, label] of labelSprites.entries()) {
+            const body = solarSystemObjects.value.planets.get(name);
+            if (body) {
+                const planetData = SOLAR_SYSTEM[name];
+                const visualSize = getLogarithmicSize(planetData.radius);
+                label.position.copy(body.mesh.position);
+                label.position.y += visualSize * 1.5; // Float above planet
+            }
+        }
 
         if (controls.value) {
             controls.value.target.set(0, 0, 0);
@@ -158,15 +218,28 @@ export function useThreeScene(
 
         raycaster.setFromCamera(mouse, camera.value);
 
+        // Use hitboxes for planet detection (larger click targets)
+        const hitboxArray = Array.from(hitboxMeshes.values());
         const planetMeshes = Array.from(solarSystemObjects.value.planets.values()).map(b => b.mesh);
         const moonMeshes = Array.from(solarSystemObjects.value.moons.values());
-        const allBodies = [...planetMeshes, ...moonMeshes];
+        const allBodies = [...hitboxArray, ...planetMeshes, ...moonMeshes];
 
         const intersects = raycaster.intersectObjects(allBodies);
 
         if (intersects.length > 0) {
+            const hitObject = intersects[0].object;
+
+            // Check if we hit a hitbox (invisible larger sphere)
+            if (hitObject.userData.isHitbox && hitObject.userData.planetName) {
+                const planetName = hitObject.userData.planetName;
+                selectPlanet(planetName);
+                options.onPlanetSelect?.(planetName);
+                return;
+            }
+
+            // Check if we hit a planet mesh directly
             const planetEntry = Array.from(solarSystemObjects.value.planets.entries())
-                .find(([_, body]) => body.mesh === intersects[0].object);
+                .find(([_, body]) => body.mesh === hitObject);
 
             if (planetEntry) {
                 selectPlanet(planetEntry[0]);
@@ -174,17 +247,19 @@ export function useThreeScene(
                 return;
             }
 
+            // Check if we hit a moon
             const moonEntry = Array.from(solarSystemObjects.value.moons.entries())
-                .find(([_, mesh]) => mesh === intersects[0].object);
+                .find(([_, mesh]) => mesh === hitObject);
 
             if (moonEntry) {
                 const planetName = moonEntry[0].split('-')[0];
                 selectPlanet(planetName);
                 options.onPlanetSelect?.(planetName);
+                return;
             }
-        } else {
-            options.onBackgroundClick?.();
         }
+
+        options.onBackgroundClick?.();
     }
 
     function selectPlanet(planetName: string) {
@@ -220,6 +295,54 @@ export function useThreeScene(
         selectPlanet('sun');
     }
 
+    function createLabelSprite(text: string): THREE.Sprite {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d')!;
+        canvas.width = 256;
+        canvas.height = 64;
+
+        context.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        context.roundRect(0, 0, canvas.width, canvas.height, 8);
+        context.fill();
+
+        context.font = 'bold 32px Arial';
+        context.fillStyle = 'white';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(text, canvas.width / 2, canvas.height / 2);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(100, 25, 1);
+        sprite.visible = false;
+
+        return sprite;
+    }
+
+    function createLabels() {
+        if (!scene.value || !solarSystemObjects.value) return;
+
+        for (const [name, body] of solarSystemObjects.value.planets.entries()) {
+            const planetData = SOLAR_SYSTEM[name];
+            const label = createLabelSprite(planetData.name);
+            scene.value.add(label);
+            labelSprites.set(name, label);
+        }
+    }
+
+    function setLabelsVisible(visible: boolean) {
+        labelsVisible = visible;
+        for (const sprite of labelSprites.values()) {
+            sprite.visible = visible;
+        }
+    }
+
     onMounted(async () => {
         initScene();
         await initSolarSystem();
@@ -251,6 +374,7 @@ export function useThreeScene(
         selectedPlanet,
         handleClick,
         selectPlanet,
-        resetView
+        resetView,
+        setLabelsVisible
     };
 }
