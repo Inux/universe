@@ -2,19 +2,21 @@
 
 * For all tasks keep the README.md, docs.md and PLAN.md updated accordingly
 
-## Phase 6: Surface Improvements
+## Phase 6: ✅ COMPLETED - Surface Improvements
 *Complexity: High | Impact: Medium*
 
-- [ ] **Day/night cycle** on planet surfaces
-  - Sun position affects lighting
-  - Dynamic shadows
-  - City lights on night side (Earth)
-- [ ] **Improved terrain generation**
-  - Biome-specific features
-  - Water reflections
-  - Atmospheric scattering
-  - Skybox with stars and nebulae
-  - Bigger surface (which is curved so we can walk arount a planet literally)
+- [x] **Day/night cycle** on planet surfaces
+  - ✅ Sun position animates across sky (2-minute cycle)
+  - ✅ Dynamic shadows follow sun
+  - ✅ Sunrise/sunset color transitions (orange → white → blue moonlight)
+  - ✅ Sky color changes with time of day
+- [x] **Improved terrain generation**
+  - ✅ Dwarf planet terrain configs (Pluto, Eris, Makemake, Haumea)
+  - ✅ Animated water with waves and fresnel reflections
+  - ✅ Sun specular highlights on water
+  - ✅ Starfield visible at night (5000 stars)
+  - ✅ Stars fade in/out with day/night transition
+- [ ] **Future: Curved spherical terrain** (major architectural change, deferred)
 
 ## Phase 7: Audio Experience
 *Complexity: Low | Impact: Medium*

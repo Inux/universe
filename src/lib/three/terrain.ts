@@ -363,25 +363,94 @@ export function createSphericalTerrain(
 }
 
 /**
- * Creates water plane for planets with water
+ * Creates water plane for planets with water - with animated waves
  */
 export function createWaterPlane(size: number, config: TerrainConfig): THREE.Mesh | null {
     if (!config.waterLevel || !config.waterColor) return null;
 
-    const geometry = new THREE.PlaneGeometry(size * 1.2, size * 1.2);
-    const material = new THREE.MeshStandardMaterial({
-        color: config.waterColor,
+    const geometry = new THREE.PlaneGeometry(size * 1.2, size * 1.2, 64, 64);
+
+    // Create shader material for animated water with reflections
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            waterColor: { value: config.waterColor },
+            time: { value: 0 },
+            sunDirection: { value: new THREE.Vector3(0.5, 0.5, 0.3).normalize() },
+        },
+        vertexShader: `
+            uniform float time;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vWorldPosition;
+
+            void main() {
+                vUv = uv;
+
+                // Animated wave displacement
+                vec3 pos = position;
+                float wave1 = sin(pos.x * 0.1 + time) * 0.3;
+                float wave2 = sin(pos.y * 0.15 + time * 0.8) * 0.2;
+                pos.z += wave1 + wave2;
+
+                vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+                vWorldPosition = worldPosition.xyz;
+                vNormal = normalize(normalMatrix * normal);
+
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 waterColor;
+            uniform vec3 sunDirection;
+            uniform float time;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vWorldPosition;
+
+            void main() {
+                // Fresnel effect for reflections
+                vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+                float fresnel = pow(1.0 - max(dot(viewDirection, vec3(0.0, 1.0, 0.0)), 0.0), 3.0);
+
+                // Sun reflection (specular)
+                vec3 reflectDir = reflect(-sunDirection, vec3(0.0, 1.0, 0.0));
+                float spec = pow(max(dot(viewDirection, reflectDir), 0.0), 64.0);
+
+                // Mix water color with sky reflection
+                vec3 skyColor = vec3(0.6, 0.8, 1.0);
+                vec3 color = mix(waterColor, skyColor, fresnel * 0.5);
+                color += vec3(1.0) * spec * 0.5;
+
+                // Add subtle wave pattern
+                float pattern = sin(vUv.x * 50.0 + time) * sin(vUv.y * 50.0 + time * 0.7) * 0.02;
+                color += vec3(pattern);
+
+                gl_FragColor = vec4(color, 0.85);
+            }
+        `,
         transparent: true,
-        opacity: 0.8,
-        roughness: 0.1,
-        metalness: 0.3,
+        side: THREE.DoubleSide,
     });
 
     const water = new THREE.Mesh(geometry, material);
     water.rotation.x = -Math.PI / 2;
     water.position.y = config.waterLevel * config.amplitude * size * 0.5;
+    water.userData.isWater = true;
 
     return water;
+}
+
+/**
+ * Update water animation
+ */
+export function updateWater(water: THREE.Mesh, time: number, sunDirection?: THREE.Vector3): void {
+    const material = water.material as THREE.ShaderMaterial;
+    if (!material.uniforms) return;
+
+    material.uniforms.time.value = time;
+    if (sunDirection) {
+        material.uniforms.sunDirection.value.copy(sunDirection);
+    }
 }
 
 /**

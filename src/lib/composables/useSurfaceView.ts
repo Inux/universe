@@ -6,6 +6,7 @@ import {
     TERRAIN_CONFIGS,
     createTerrainMesh,
     createWaterPlane,
+    updateWater,
     createSkyDome,
     createStarfield,
     updateSkyDome,
@@ -223,6 +224,11 @@ export function useSurfaceView(
 
         // Update sky dome
         updateSkyDome(skyDome, sunDirection, !!config.atmosphereColor);
+
+        // Update water animation
+        if (waterMesh) {
+            updateWater(waterMesh, dayTime * dayDuration, sunDirection);
+        }
 
         // Update starfield visibility
         if (starfield) {
