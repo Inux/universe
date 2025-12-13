@@ -86,7 +86,7 @@ export function useThreeScene(
         controls.value.enableDamping = true;
         controls.value.dampingFactor = 0.05;
         controls.value.minDistance = getLogarithmicSize(SOLAR_SYSTEM.earth.radius) * 0.5; // Can't zoom too close
-        controls.value.maxDistance = 50000; // Reasonable max zoom out
+        controls.value.maxDistance = 120000; // Extended for Kuiper belt objects
         controls.value.enablePan = true;
         controls.value.enableZoom = true;
 
