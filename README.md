@@ -88,19 +88,30 @@ Key changes from multiplayer version:
 
 Based on user feedback, the following enhancements are planned:
 
-### 1. Planet Scaling Improvements
+### 1. Planet Scaling Improvements ✅ IMPLEMENTED
 **Problem**: Current scaling requires manual slider adjustment; some planets too small/big.
 
 **Solution**:
-- Remove the distance scaling slider
-- Implement automatic distance scaling so all planets are visible in the default view
-- Use **logarithmic size scaling** for planet radii:
+- ✅ Remove the distance scaling slider
+- ✅ Implement automatic distance scaling so all planets are visible in the default view
+- ✅ Use **logarithmic size scaling** for planet radii:
   - Preserves relative size differences (Jupiter > Earth > Mercury)
   - Ensures small planets (Mercury, Mars) remain visible
   - Ensures large planets (Jupiter, Saturn) don't dominate the view
   - Formula: `visualRadius = baseSize * log(1 + realRadius / referenceRadius)`
 
-**Files to modify**: `src/app.ts` (SCALE constants, initSolarSystem, remove slider)
+**Implementation**: Added to `src/app.ts`:
+```typescript
+const REFERENCE_RADIUS = 6371; // Earth's radius as reference
+const BASE_VISUAL_SIZE = 50;
+const MIN_PLANET_SIZE = 20;
+const MAX_PLANET_SIZE = 400;
+
+function getLogarithmicSize(realRadius: number): number {
+    const logSize = BASE_VISUAL_SIZE * Math.log(1 + realRadius / REFERENCE_RADIUS);
+    return Math.max(MIN_PLANET_SIZE, Math.min(MAX_PLANET_SIZE, logSize));
+}
+```
 
 ---
 
@@ -262,10 +273,10 @@ class TerrainGenerator {
    - [ ] Improve planet textures and add atmosphere effects
    - [ ] Add Saturn's rings
 
-2. **Phase 2 - Scaling Fixes**
-   - [ ] Remove distance slider
-   - [ ] Implement logarithmic size scaling
-   - [ ] Set optimal default camera position
+2. **Phase 2 - Scaling Fixes** ✅ COMPLETED
+   - [x] Remove distance slider
+   - [x] Implement logarithmic size scaling
+   - [x] Set optimal default camera position
 
 3. **Phase 3 - Planet Exploration**
    - [ ] Add planet info panel (first click)
