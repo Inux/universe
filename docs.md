@@ -40,7 +40,6 @@ src/
 | `skybox.ts` | Starfield generation, nebula effects, distant galaxies |
 | `shaders.ts` | Fresnel atmosphere shaders, sun glow/corona effects |
 | `rings.ts` | Procedural ring textures for Saturn and Uranus |
-| `asteroids.ts` | Asteroid belt (instanced meshes), comet trails (particles) |
 | `solarSystem.ts` | Planet/moon creation, orbital position updates |
 
 ---
