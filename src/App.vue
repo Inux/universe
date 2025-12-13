@@ -48,8 +48,8 @@ const surfaceViewActive = ref(false);
 const shouldEnterSurface = ref(false);
 const showPlanetLabels = ref(false);
 
-// Planet order for arrow key navigation
-const PLANET_ORDER = ['sun', 'mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
+// Planet order for arrow key navigation (including dwarf planets)
+const PLANET_ORDER = ['sun', 'mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto', 'haumea', 'makemake', 'eris'];
 
 const isLoading = computed(() => threeCanvas.value?.isLoading ?? true);
 

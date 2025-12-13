@@ -163,6 +163,53 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
             { name: "Triton", radius: 1353.4, distance: 354759, orbitalPeriod: 5.88, color: 0x87ceeb },
             { name: "Nereid", radius: 178.5, distance: 5513818, orbitalPeriod: 360.14, color: 0x696969 }
         ]
+    },
+    // Kuiper Belt Dwarf Planets
+    pluto: {
+        name: "Pluto",
+        radius: 1188.3,
+        distanceFromSun: 5906.4e6,
+        orbitalPeriod: 90560,  // ~248 years
+        rotationPeriod: -153.3,  // Retrograde rotation
+        texture: '/textures/2k_pluto.jpg',
+        color: 0xc9b896,
+        moons: [
+            { name: "Charon", radius: 606, distance: 19591, orbitalPeriod: 6.39, color: 0x808080 }
+        ]
+    },
+    eris: {
+        name: "Eris",
+        radius: 1163,
+        distanceFromSun: 10125e6,  // Average, highly elliptical
+        orbitalPeriod: 203830,  // ~558 years
+        rotationPeriod: 25.9,
+        texture: '',  // No texture, use color
+        color: 0xe8e8e8,  // Very bright/white
+        moons: [
+            { name: "Dysnomia", radius: 350, distance: 37350, orbitalPeriod: 15.77, color: 0x696969 }
+        ]
+    },
+    makemake: {
+        name: "Makemake",
+        radius: 715,
+        distanceFromSun: 6850e6,
+        orbitalPeriod: 111845,  // ~306 years
+        rotationPeriod: 22.5,
+        texture: '',
+        color: 0xd4a574  // Reddish-brown
+    },
+    haumea: {
+        name: "Haumea",
+        radius: 816,  // Mean radius (elongated shape)
+        distanceFromSun: 6452e6,
+        orbitalPeriod: 103774,  // ~284 years
+        rotationPeriod: 3.9,  // Very fast rotation
+        texture: '',
+        color: 0xf5f5dc,  // Beige/white
+        moons: [
+            { name: "Hi'iaka", radius: 160, distance: 49880, orbitalPeriod: 49.12, color: 0xc0c0c0 },
+            { name: "Namaka", radius: 85, distance: 25657, orbitalPeriod: 18.28, color: 0xa0a0a0 }
+        ]
     }
 };
 

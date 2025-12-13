@@ -101,6 +101,51 @@ export const PLANET_INFO: { [key: string]: ExtendedPlanetInfo } = {
         type: "Ice Giant",
         discoverer: "Johann Galle",
         yearDiscovered: 1846
+    },
+    // Kuiper Belt Dwarf Planets
+    pluto: {
+        mass: "1.303 × 10²² kg",
+        gravity: 0.62,
+        temperature: 44,
+        atmosphere: "N₂, CH₄, CO (thin)",
+        description: "Pluto was reclassified as a dwarf planet in 2006. It has a heart-shaped nitrogen glacier called Tombaugh Regio and a complex relationship with its largest moon Charon.",
+        moonCount: 5,
+        type: "Dwarf Planet",
+        discoverer: "Clyde Tombaugh",
+        yearDiscovered: 1930
+    },
+    eris: {
+        mass: "1.66 × 10²² kg",
+        gravity: 0.82,
+        temperature: 42,
+        atmosphere: "Possible thin CH₄",
+        description: "Eris is the most massive known dwarf planet. Its discovery in 2005 led to the reclassification of Pluto. It's named after the Greek goddess of strife and discord.",
+        moonCount: 1,
+        type: "Dwarf Planet",
+        discoverer: "Mike Brown",
+        yearDiscovered: 2005
+    },
+    makemake: {
+        mass: "3.1 × 10²¹ kg",
+        gravity: 0.5,
+        temperature: 40,
+        atmosphere: "None detected",
+        description: "Makemake is one of the largest Kuiper belt objects. It's named after the creation deity of the Rapa Nui people of Easter Island. It has a reddish-brown color.",
+        moonCount: 1,
+        type: "Dwarf Planet",
+        discoverer: "Mike Brown",
+        yearDiscovered: 2005
+    },
+    haumea: {
+        mass: "4.01 × 10²¹ kg",
+        gravity: 0.44,
+        temperature: 32,
+        atmosphere: "None",
+        description: "Haumea has an unusual elongated shape due to its rapid rotation (one day = 4 hours). It has a ring system and two small moons. Named after the Hawaiian goddess of fertility.",
+        moonCount: 2,
+        type: "Dwarf Planet",
+        discoverer: "Mike Brown",
+        yearDiscovered: 2004
     }
 };
 
@@ -117,7 +162,11 @@ export function getPlanetEmoji(name: string): string {
         jupiter: '🟠',
         saturn: '🪐',
         uranus: '🔵',
-        neptune: '🔷'
+        neptune: '🔷',
+        pluto: '🔘',
+        eris: '⚪',
+        makemake: '🟤',
+        haumea: '🥚'
     };
     return emojis[name] || '🌑';
 }
