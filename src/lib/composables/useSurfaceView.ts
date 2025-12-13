@@ -7,6 +7,8 @@ import {
     createTerrainMesh,
     createWaterPlane,
     createSkyDome,
+    createStarfield,
+    updateSkyDome,
     type TerrainConfig
 } from '../three/terrain';
 
@@ -31,6 +33,12 @@ export function useSurfaceView(
     let terrainMesh: THREE.Mesh | null = null;
     let waterMesh: THREE.Mesh | null = null;
     let skyDome: THREE.Mesh | null = null;
+    let starfield: THREE.Points | null = null;
+    let sunLight: THREE.DirectionalLight | null = null;
+
+    // Day/night cycle
+    let dayTime = 0.25; // Start at sunrise (0-1, 0.5 = noon)
+    const dayDuration = 120; // Seconds for a full day cycle
 
     // Player state for surface exploration
     const playerPosition = ref(new THREE.Vector3(0, 5, 0));
@@ -78,11 +86,12 @@ export function useSurfaceView(
         controls.value.maxDistance = 200;
         controls.value.target.set(0, 0, 0);
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0x606060, 0.8);
+        // Lighting - ambient for base illumination
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
         scene.value.add(ambientLight);
 
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        // Sun light (directional) - will be animated for day/night
+        sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
         sunLight.position.set(100, 100, 50);
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 2048;
@@ -95,8 +104,8 @@ export function useSurfaceView(
         sunLight.shadow.camera.bottom = -100;
         scene.value.add(sunLight);
 
-        // Hemisphere light for better ambient
-        const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.6);
+        // Hemisphere light for sky/ground color bleeding
+        const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.4);
         scene.value.add(hemiLight);
 
         return true;
@@ -124,6 +133,11 @@ export function useSurfaceView(
             skyDome.geometry.dispose();
             (skyDome.material as THREE.Material).dispose();
         }
+        if (starfield) {
+            scene.value.remove(starfield);
+            starfield.geometry.dispose();
+            (starfield.material as THREE.Material).dispose();
+        }
 
         const config = TERRAIN_CONFIGS[planetName] || TERRAIN_CONFIGS.earth;
         currentGravity = config.gravity;
@@ -142,9 +156,13 @@ export function useSurfaceView(
             scene.value.add(waterMesh);
         }
 
-        // Create sky dome
+        // Create sky dome with day/night support
         skyDome = createSkyDome(config, 800);
         scene.value.add(skyDome);
+
+        // Create starfield for night sky
+        starfield = createStarfield(850);
+        scene.value.add(starfield);
 
         // Update hemisphere light colors based on planet
         const hemiLight = scene.value.children.find(
@@ -162,13 +180,75 @@ export function useSurfaceView(
             controls.value.target.set(0, 0, 0);
         }
 
+        // Reset day time to sunrise
+        dayTime = 0.25;
+
         isLoading.value = false;
+    }
+
+    /**
+     * Update day/night cycle
+     */
+    function updateDayNightCycle(delta: number) {
+        if (!sunLight || !skyDome || !scene.value) return;
+
+        const config = TERRAIN_CONFIGS[currentPlanet.value || 'earth'] || TERRAIN_CONFIGS.earth;
+
+        // Advance time
+        dayTime += delta / dayDuration;
+        if (dayTime > 1) dayTime -= 1;
+
+        // Calculate sun position (circular path)
+        const sunAngle = dayTime * Math.PI * 2 - Math.PI / 2; // Start at horizon
+        const sunHeight = Math.sin(sunAngle);
+        const sunHorizontal = Math.cos(sunAngle);
+
+        const sunDirection = new THREE.Vector3(sunHorizontal, sunHeight, 0.3).normalize();
+
+        // Update sun light position
+        sunLight.position.copy(sunDirection.clone().multiplyScalar(200));
+
+        // Update sun intensity based on height
+        const intensity = Math.max(0, sunHeight) * 1.5 + 0.1;
+        sunLight.intensity = intensity;
+
+        // Update sun color (warmer at sunrise/sunset)
+        if (sunHeight > 0 && sunHeight < 0.3) {
+            sunLight.color.setHex(0xffaa66); // Orange
+        } else if (sunHeight >= 0.3) {
+            sunLight.color.setHex(0xffffff); // White
+        } else {
+            sunLight.color.setHex(0x4466aa); // Moonlight blue
+        }
+
+        // Update sky dome
+        updateSkyDome(skyDome, sunDirection, !!config.atmosphereColor);
+
+        // Update starfield visibility
+        if (starfield) {
+            const starOpacity = 1 - THREE.MathUtils.smoothstep(sunHeight, -0.1, 0.2);
+            (starfield.material as THREE.PointsMaterial).opacity = starOpacity * 0.8;
+        }
+
+        // Update hemisphere light
+        const hemiLight = scene.value.children.find(
+            child => child instanceof THREE.HemisphereLight
+        ) as THREE.HemisphereLight | undefined;
+
+        if (hemiLight) {
+            hemiLight.intensity = Math.max(0.1, sunHeight * 0.4 + 0.2);
+        }
     }
 
     function animate() {
         if (!isActive.value) return;
 
         animationId = requestAnimationFrame(animate);
+
+        const delta = 1 / 60;
+
+        // Update day/night cycle
+        updateDayNightCycle(delta);
 
         // Update physics
         updatePhysics();

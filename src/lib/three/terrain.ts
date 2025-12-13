@@ -121,6 +121,47 @@ export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
         atmosphereColor: new THREE.Color(0x6688ff),
         gravity: 11.15,
     },
+    // Dwarf planets
+    pluto: {
+        noiseFrequency: 1.8,
+        amplitude: 0.09,
+        octaves: 5,
+        persistence: 0.5,
+        lacunarity: 2.0,
+        baseColor: new THREE.Color(0xc9b896),
+        secondaryColor: new THREE.Color(0xe8dcc8),
+        gravity: 0.62,
+    },
+    eris: {
+        noiseFrequency: 1.5,
+        amplitude: 0.06,
+        octaves: 4,
+        persistence: 0.5,
+        lacunarity: 2.0,
+        baseColor: new THREE.Color(0xe8e8e8),
+        secondaryColor: new THREE.Color(0xffffff),
+        gravity: 0.82,
+    },
+    makemake: {
+        noiseFrequency: 1.6,
+        amplitude: 0.07,
+        octaves: 4,
+        persistence: 0.5,
+        lacunarity: 2.0,
+        baseColor: new THREE.Color(0xd4a574),
+        secondaryColor: new THREE.Color(0xb8956a),
+        gravity: 0.5,
+    },
+    haumea: {
+        noiseFrequency: 2.0,
+        amplitude: 0.05,
+        octaves: 4,
+        persistence: 0.5,
+        lacunarity: 2.0,
+        baseColor: new THREE.Color(0xf5f5dc),
+        secondaryColor: new THREE.Color(0xdcdcdc),
+        gravity: 0.44,
+    },
 };
 
 /**
@@ -344,24 +385,30 @@ export function createWaterPlane(size: number, config: TerrainConfig): THREE.Mes
 }
 
 /**
- * Creates a sky dome for surface view
+ * Creates a sky dome for surface view with day/night cycle support
  */
 export function createSkyDome(config: TerrainConfig, radius: number = 500): THREE.Mesh {
-    const geometry = new THREE.SphereGeometry(radius, 32, 32);
+    const geometry = new THREE.SphereGeometry(radius, 64, 64);
 
     const skyColor = config.atmosphereColor || new THREE.Color(0x000011);
     const horizonColor = skyColor.clone().multiplyScalar(0.5);
+    const nightColor = new THREE.Color(0x000011);
 
     const material = new THREE.ShaderMaterial({
         uniforms: {
             topColor: { value: skyColor },
             bottomColor: { value: horizonColor },
+            nightColor: { value: nightColor },
+            sunDirection: { value: new THREE.Vector3(0.5, 0.3, 0.5).normalize() },
+            dayNightMix: { value: 1.0 }, // 1 = day, 0 = night
             offset: { value: 20 },
             exponent: { value: 0.6 },
         },
         vertexShader: `
             varying vec3 vWorldPosition;
+            varying vec2 vUv;
             void main() {
+                vUv = uv;
                 vec4 worldPosition = modelMatrix * vec4(position, 1.0);
                 vWorldPosition = worldPosition.xyz;
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -370,16 +417,114 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
         fragmentShader: `
             uniform vec3 topColor;
             uniform vec3 bottomColor;
+            uniform vec3 nightColor;
+            uniform vec3 sunDirection;
+            uniform float dayNightMix;
             uniform float offset;
             uniform float exponent;
             varying vec3 vWorldPosition;
+            varying vec2 vUv;
+
+            // Simple star field
+            float random(vec2 st) {
+                return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+            }
+
             void main() {
                 float h = normalize(vWorldPosition + offset).y;
-                gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+                vec3 dayColor = mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0));
+
+                // Add stars at night
+                vec3 nightSky = nightColor;
+                float starIntensity = random(vUv * 500.0);
+                if (starIntensity > 0.998) {
+                    nightSky += vec3(starIntensity * 2.0);
+                }
+
+                // Mix day and night based on sun position
+                vec3 finalColor = mix(nightSky, dayColor, dayNightMix);
+
+                gl_FragColor = vec4(finalColor, 1.0);
             }
         `,
         side: THREE.BackSide,
     });
 
-    return new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.isSkyDome = true;
+    return mesh;
+}
+
+/**
+ * Creates a starfield background for night sky
+ */
+export function createStarfield(radius: number = 900): THREE.Points {
+    const starCount = 5000;
+    const positions = new Float32Array(starCount * 3);
+    const colors = new Float32Array(starCount * 3);
+    const sizes = new Float32Array(starCount);
+
+    for (let i = 0; i < starCount; i++) {
+        // Random position on sphere
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+
+        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+        positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+        positions[i * 3 + 2] = radius * Math.cos(phi);
+
+        // Star color (mostly white, some blue/yellow tints)
+        const colorType = Math.random();
+        if (colorType < 0.7) {
+            colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
+        } else if (colorType < 0.85) {
+            colors[i * 3] = 0.8; colors[i * 3 + 1] = 0.9; colors[i * 3 + 2] = 1;
+        } else {
+            colors[i * 3] = 1; colors[i * 3 + 1] = 0.95; colors[i * 3 + 2] = 0.8;
+        }
+
+        sizes[i] = Math.random() * 2 + 0.5;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+        size: 2,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.8,
+        sizeAttenuation: false,
+    });
+
+    const stars = new THREE.Points(geometry, material);
+    stars.userData.isStarfield = true;
+    return stars;
+}
+
+/**
+ * Update sky dome for day/night cycle
+ */
+export function updateSkyDome(
+    skyDome: THREE.Mesh,
+    sunDirection: THREE.Vector3,
+    hasAtmosphere: boolean = true
+): void {
+    const material = skyDome.material as THREE.ShaderMaterial;
+    if (!material.uniforms) return;
+
+    material.uniforms.sunDirection.value.copy(sunDirection);
+
+    // Calculate day/night mix based on sun height
+    const sunHeight = sunDirection.y;
+    let dayNightMix = THREE.MathUtils.smoothstep(sunHeight, -0.2, 0.3);
+
+    // Planets without atmosphere have no twilight
+    if (!hasAtmosphere) {
+        dayNightMix = sunHeight > 0 ? 1.0 : 0.0;
+    }
+
+    material.uniforms.dayNightMix.value = dayNightMix;
 }
