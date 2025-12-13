@@ -1,52 +1,37 @@
 # Implementation Plan
 
-## Overview
+* For all tasks keep the README.md and docs.md updated accordingly
 
-This document tracks the implementation progress of the Universe Browser Game enhancements.
+## Phase 1:
 
-## Phase 4 - Surface Exploration ✅ COMPLETED
+* Code cleanup
+  * Check for dead code
+  * Check for obvious bugs
+  * Check for code smells
+  * Check for code duplication
+  * Check for code complexity
+* UI Cleanup
+  * Make the UI more user-friendly
+  * Make the UI more responsive
+  * Make the UI more accessible
+  * Make the UI more modern
+  * Check that Explore button is visible
 
-**Goal**: Let users explore planet surfaces with procedural terrain after clicking on a planet when hud is open (so user has to click on a planet to open the hud, then again to open the surface).
+## Phase 2:
 
-- [x] Create terrain generator using Simplex noise
-- [x] Implement planet surface view mode
-- [x] Add planet-specific terrain parameters
-- [x] Adjust physics for each planet's gravity
-- [x] Add transition animation from orbit to surface
+* UI Optimization
+  * Make limit so the user cannot zoom out infinite
+  * Make limit so the user cannot zoom in infinite
+* UX Optimization
+  * Make it easier to click on planets (bigger hitbox)
+  * Make it easier to click on moons (bigger hitbox)
+  * Show names of planets and moons when pressing i (for info)
+    * Add to HUD
 
-**Files created**:
-- `src/lib/three/terrain.ts` - Procedural terrain generator with fBm noise
-- `src/lib/composables/useSurfaceView.ts` - Surface exploration composable
-- `src/lib/components/SurfaceView.vue` - Surface view UI component
+## Phase 3:
+* Make plan for Future Ideas (see below)
 
-**Dependencies added**: `simplex-noise ^4.0.0`
-
-### Features Implemented
-- Procedural terrain using fractal Brownian motion (fBm) with simplex noise
-- Planet-specific terrain configs (frequency, amplitude, octaves, colors)
-- Per-planet gravity affecting jump physics
-- Water planes for Earth-like planets
-- Dynamic sky domes with atmosphere colors
-- Smooth transition animations between orbit and surface views
-- Surface HUD showing planet name and gravity
-- WASD movement + Space to jump + ESC to exit
-
-### Terrain Parameters
-| Planet | Noise Frequency | Amplitude | Color Palette |
-|--------|----------------|-----------|---------------|
-| Mercury | 2.0 (High) | 0.08 (Low) | Grey |
-| Venus | 1.2 (Medium) | 0.06 (Medium) | Yellow, orange |
-| Earth | 1.5 (Variable) | 0.1 (High) | Green, blue, brown |
-| Mars | 1.3 (Medium) | 0.12 (High) | Red, orange |
-| Moon | 2.5 (High) | 0.07 (Medium) | Grey |
-| Jupiter | 0.8 (Low) | 0.02 (Low) | Tan, orange |
-| Saturn | 0.7 (Low) | 0.02 (Low) | Cream, tan |
-| Uranus | 0.6 (Low) | 0.015 (Low) | Cyan, blue |
-| Neptune | 0.6 (Low) | 0.015 (Low) | Blue, indigo |
-
----
-
-## Future Ideas
+### Future Ideas
 
 - [ ] Asteroid belt between Mars and Jupiter
 - [ ] Kuiper belt objects (Pluto, Eris)
