@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Player, Vector3, CONSTANTS } from './models';
-import { updatePlayerMovement, updatePlayerPhysics } from './physics';
-import { createStarfield, createSpaceBackground, createDistantGalaxies } from './skybox';
+import { Player, Vector3, CONSTANTS } from './lib/game/models';
+import { updatePlayerMovement, updatePlayerPhysics } from './lib/game/physics';
+import { createStarfield, createSpaceBackground, createDistantGalaxies } from './lib/three/skybox';
 import {
     SOLAR_SYSTEM,
     SCALE,
@@ -10,9 +10,9 @@ import {
     getLogarithmicSize,
     createSolarSystem,
     updateOrbitalPositions,
-    CelestialBody,
     SolarSystemObjects
-} from './solarSystem';
+} from './lib/three/solarSystem';
+import { CameraTransition, easeOutCubic } from './lib/three/CameraTransition';
 
 class GameClient {
     private scene: THREE.Scene;
@@ -24,7 +24,6 @@ class GameClient {
     private clientId: string;
     private movement: Vector3;
     private solarSystemObjects: SolarSystemObjects | null = null;
-    private hudElement!: HTMLDivElement;
     private distanceScaleValue: number;
     private textureLoader: THREE.TextureLoader;
     private time: number = 0;
@@ -41,6 +40,9 @@ class GameClient {
     // Local player state
     private localPlayer: Player;
     private gameLoopId: number | null = null;
+
+    // Camera transition
+    private cameraTransition: CameraTransition | null = null;
 
     constructor() {
         this.scene = new THREE.Scene();
@@ -88,7 +90,6 @@ class GameClient {
 
         this.initThree();
         this.initControls();
-        this.initHUD();
         this.initGame();
 
         // Add event listeners
@@ -240,7 +241,6 @@ class GameClient {
 
         updatePlayerPhysics(this.localPlayer);
         this.updatePlayerMeshPosition();
-        this.updateHUD();
     }
 
     private updatePlayerMeshPosition() {
@@ -255,82 +255,6 @@ class GameClient {
         const surfaceHeight = getLogarithmicSize(SOLAR_SYSTEM.earth.radius);
         this.playerMesh.position.copy(surfaceNormal.multiplyScalar(surfaceHeight));
         this.lastPlayerPosition = this.playerMesh.position.clone();
-    }
-
-    private initHUD() {
-        this.hudElement = document.createElement('div');
-        this.hudElement.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            color: white;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.7), rgba(20, 20, 40, 0.7));
-            padding: 15px 20px;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            min-width: 180px;
-        `;
-        document.body.appendChild(this.hudElement);
-
-        const controlsHint = document.createElement('div');
-        controlsHint.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            color: white;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.6), rgba(20, 20, 40, 0.6));
-            padding: 12px 16px;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            font-size: 12px;
-            line-height: 1.6;
-        `;
-        controlsHint.innerHTML = `
-            <div style="font-weight: bold; margin-bottom: 8px; color: #88aaff;">Controls</div>
-            <div>🖱️ Click planet to focus</div>
-            <div>⎋ ESC - View all</div>
-            <div>📍 L - Locate player</div>
-            <div>🎮 WASD - Move | Space - Jump</div>
-        `;
-        document.body.appendChild(controlsHint);
-    }
-
-    private updateHUD() {
-        const currentPlanetData = SOLAR_SYSTEM[this.selectedPlanet];
-        if (!currentPlanetData) return;
-
-        const planetEmoji = this.getPlanetEmoji(this.selectedPlanet);
-
-        this.hudElement.innerHTML = `
-            <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #ffdd88;">
-                ${planetEmoji} ${currentPlanetData.name}
-            </div>
-            <div style="font-size: 13px; opacity: 0.9;">
-                <div style="margin: 4px 0;">📏 Radius: ${currentPlanetData.radius.toLocaleString()} km</div>
-                <div style="margin: 4px 0;">🌍 Distance: ${(currentPlanetData.distanceFromSun/1e6).toFixed(1)}M km</div>
-                <div style="margin: 4px 0;">📅 Year: ${currentPlanetData.orbitalPeriod.toLocaleString()} days</div>
-                <div style="margin: 4px 0;">⏰ Day: ${Math.abs(currentPlanetData.rotationPeriod).toFixed(1)} hours</div>
-            </div>
-        `;
-    }
-
-    private getPlanetEmoji(name: string): string {
-        const emojis: { [key: string]: string } = {
-            sun: '☀️',
-            mercury: '☿️',
-            venus: '♀️',
-            earth: '🌍',
-            mars: '🔴',
-            jupiter: '🟠',
-            saturn: '🪐',
-            uranus: '🔵',
-            neptune: '🔷'
-        };
-        return emojis[name] || '🌑';
     }
 
     private updateAllPositions() {
@@ -361,6 +285,10 @@ class GameClient {
     private handleClick(event: MouseEvent) {
         if (!this.solarSystemObjects) return;
 
+        // Ignore clicks on UI elements
+        const target = event.target as HTMLElement;
+        if (target.closest('#vue-ui')) return;
+
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
@@ -377,7 +305,7 @@ class GameClient {
                 .find(([_, body]) => body.mesh === intersects[0].object);
 
             if (planetEntry) {
-                this.selectPlanet(planetEntry[0]);
+                this.selectPlanetWithInfo(planetEntry[0]);
                 return;
             }
 
@@ -386,15 +314,26 @@ class GameClient {
 
             if (moonEntry) {
                 const planetName = moonEntry[0].split('-')[0];
-                this.selectPlanet(planetName);
+                this.selectPlanetWithInfo(planetName);
             }
         }
+    }
+
+    private selectPlanetWithInfo(planetName: string): void {
+        this.selectPlanet(planetName);
+        // Info panel is handled by Vue UI layer
     }
 
     private handleGlobalKeyDown(event: KeyboardEvent) {
         if (event.key === 'Escape') {
             this.isFollowingPlayer = false;
             this.controls.enabled = true;
+
+            // Cancel any camera transition
+            if (this.cameraTransition) {
+                this.cameraTransition.cancel();
+            }
+
             this.selectPlanet('sun');
         } else if (event.key.toLowerCase() === 'l') {
             this.locatePlayer();
@@ -411,15 +350,28 @@ class GameClient {
         this.updateAllPositions();
         this.controls.target.set(0, 0, 0);
 
+        // Initialize camera transition if not exists
+        if (!this.cameraTransition) {
+            this.cameraTransition = new CameraTransition(this.camera, this.controls);
+        }
+
+        let targetPosition: THREE.Vector3;
+        const lookAt = new THREE.Vector3(0, 0, 0);
+
         if (planetName === 'sun') {
             const maxDistance = SOLAR_SYSTEM.neptune?.distanceFromSun || SOLAR_SYSTEM.earth.distanceFromSun;
-            this.camera.position.set(0, maxDistance * SCALE.DISTANCE * this.distanceScaleValue * 1.5, 0);
+            targetPosition = new THREE.Vector3(0, maxDistance * SCALE.DISTANCE * this.distanceScaleValue * 1.5, 0);
         } else {
             const planetData = SOLAR_SYSTEM[planetName];
             const distance = getLogarithmicSize(planetData.radius) * 3;
-            const offset = new THREE.Vector3(distance, distance, distance);
-            this.camera.position.copy(offset);
+            targetPosition = new THREE.Vector3(distance, distance * 0.7, distance);
         }
+
+        // Use smooth transition
+        this.cameraTransition.transitionTo(targetPosition, lookAt, {
+            duration: 1200,
+            easing: easeOutCubic
+        });
     }
 
     private locatePlayer() {
@@ -429,11 +381,6 @@ class GameClient {
         this.isFollowingPlayer = true;
         this.selectPlanet('earth');
         this.updateCameraFollowPlayer();
-
-        this.hudElement.innerHTML = `
-            <div style="font-size: 16px; font-weight: bold; margin-bottom: 8px;">Following Player</div>
-            <div style="color: #ff6666;">Press ESC to exit follow mode</div>
-        `;
     }
 
     private updateCameraFollowPlayer() {
