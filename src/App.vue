@@ -71,6 +71,11 @@ function handleExplore(planetName: string) {
 function handleSurfaceExit() {
   surfaceViewActive.value = false;
   shouldEnterSurface.value = false;
+
+  // Trigger resize to fix renderer after being hidden
+  setTimeout(() => {
+    window.dispatchEvent(new Event('resize'));
+  }, 100);
 }
 
 function handleKeyDown(event: KeyboardEvent) {

@@ -405,10 +405,10 @@ export function updateOrbitalPositions(
         }
 
         // Planet rotation (rotationPeriod is in hours)
-        // One full rotation (2π) per rotationPeriod hours
-        // Divide by a factor to slow it down for visual appeal
-        const rotationSpeed = (2 * Math.PI) / (data.rotationPeriod * 3600); // radians per second
-        body.mesh.rotation.y += rotationSpeed * 0.1; // Slow factor for visual
+        // Scale factor to make rotation visible but not too fast
+        // Earth (24h) should complete ~1 rotation every few seconds visually
+        const rotationSpeed = (2 * Math.PI) / data.rotationPeriod; // radians per hour (scaled)
+        body.mesh.rotation.y += rotationSpeed * 0.002; // Balanced visual speed
 
         // Update moons
         if (data.moons) {
