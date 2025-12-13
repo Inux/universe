@@ -6,7 +6,7 @@ A browser-based 3D solar system explorer built with Vue.js, Three.js, and TypeSc
 
 - **Complete Solar System** - All 8 planets with accurate relative sizes and orbital mechanics
 - **Moons** - Major moons for each planet (Earth's Moon, Galilean moons, Titan, etc.)
-- **Visual Effects** - Procedural starfield, planet atmospheres, Saturn's rings, sun glow
+- **Visual Effects** - Procedural starfield, planet atmospheres, Saturn's rings, sun glow, asteroid belt, comets
 - **Surface Exploration** - Procedural terrain generation with planet-specific gravity
 - **Camera Controls** - Smooth orbit controls with planet focus transitions
 
