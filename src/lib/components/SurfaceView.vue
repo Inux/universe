@@ -27,6 +27,15 @@
         </div>
       </div>
 
+      <!-- Minimap -->
+      <Minimap
+        :visible="isActive && !isLoading"
+        :playerPosition="playerPosition"
+        :headingDeg="headingDeg"
+        :terrainMesh="getTerrainMesh()"
+        :terrainSize="getTerrainSize()"
+      />
+
       <!-- Controls hint -->
       <div class="controls-hint" v-if="showControlsHint">
         <div class="hint-row"><span class="key">W A S D</span> Move</div>
@@ -47,6 +56,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { useSurfaceView } from '../composables/useSurfaceView';
 import { TERRAIN_CONFIGS } from '../three/terrain';
+import Minimap from './Minimap.vue';
 
 const props = defineProps<{
   planet: string | null;
@@ -68,6 +78,8 @@ const {
   playerPosition,
   headingDeg,
   timeOfDay,
+  getTerrainMesh,
+  getTerrainSize,
   enter,
   exit,
 } = useSurfaceView(canvasContainer, {
@@ -200,6 +212,11 @@ defineExpose({
   left: 20px;
   color: white;
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .planet-name {
@@ -213,6 +230,29 @@ defineExpose({
   font-size: 14px;
   opacity: 0.7;
   margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 8px 0;
+  min-width: 300px;
+}
+
+.hud-label {
+  opacity: 0.7;
+  font-size: 13px;
+}
+
+.hud-value {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.mono {
+  font-family: 'Courier New', monospace;
 }
 
 .controls-hint {

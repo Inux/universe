@@ -9,3 +9,6 @@ tmp
 
 # Typescript
 node_modules
+
+# Build output
+dist
