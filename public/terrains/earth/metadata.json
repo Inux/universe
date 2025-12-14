@@ -6,12 +6,12 @@
     "terrainScale": 1.5,
     "roughness": 0.7,
     "erosionIntensity": 0.8,
-    "generationTime": 1.987
+    "generationTime": 2.157
   },
   "heightmap": {
-    "min": 0.726549506187439,
-    "max": 1.6036092042922974,
-    "avg": 1.050877149264636
+    "min": 0.6869726777076721,
+    "max": 1.695872187614441,
+    "avg": 1.051481280693963
   },
   "config": {
     "gravity": 9.81,

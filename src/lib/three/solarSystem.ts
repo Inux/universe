@@ -323,9 +323,11 @@ async function createPlanet(
     const geometry = new THREE.SphereGeometry(visualSize, 32, 32);
     const texture = await loadTextureWithFallback(textureLoader, data.texture);
 
-    const material = new THREE.MeshPhongMaterial({
+    const material = new THREE.MeshStandardMaterial({
         color: texture ? 0xffffff : data.color,
         map: texture || undefined,
+        roughness: 0.7,
+        metalness: 0.0,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -374,10 +376,12 @@ function createMoon(
     const moonVisualSize = Math.max(getLogarithmicSize(moonData.radius) * SCALE.MOON_SCALE, 5);
 
     const geometry = new THREE.SphereGeometry(moonVisualSize, 16, 16);
-    const material = new THREE.MeshPhongMaterial({
+    const material = new THREE.MeshStandardMaterial({
         color: moonData.color,
+        roughness: 0.8,
+        metalness: 0.0,
         emissive: moonData.color,
-        emissiveIntensity: 0.2
+        emissiveIntensity: 0.1
     });
 
     const moon = new THREE.Mesh(geometry, material);

@@ -92,11 +92,14 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Decode 16-bit grayscale PNG heightmap to Float32Array
+ * Decode RG-encoded PNG heightmap to Float32Array
  *
- * Note: Browser Canvas API only supports 8-bit per channel. For true 16-bit support,
- * the terrain generator outputs 16-bit values encoded as R (high byte) + G (low byte).
- * This function reads both channels and reconstructs the 16-bit value.
+ * The terrain generator outputs 16-bit height values encoded as:
+ *   R channel = high byte (bits 8-15)
+ *   G channel = low byte (bits 0-7)
+ *
+ * This allows full 16-bit precision (65536 levels) using standard 8-bit RGB PNG
+ * that browsers can decode via Canvas API.
  */
 async function decodeHeightmapPNG(blob: Blob, metadata: TerrainMetadata): Promise<Float32Array> {
     return new Promise((resolve, reject) => {
@@ -124,21 +127,14 @@ async function decodeHeightmapPNG(blob: Blob, metadata: TerrainMetadata): Promis
 
                 for (let i = 0; i < heightmap.length; i++) {
                     const pixelIdx = i * 4;
-                    const r = data[pixelIdx];
-                    const g = data[pixelIdx + 1];
+                    const r = data[pixelIdx];     // High byte
+                    const g = data[pixelIdx + 1]; // Low byte
 
-                    // Check if R and G are different (16-bit encoded as R=high, G=low)
-                    // If they're the same, it's a standard 8-bit grayscale
-                    let normalized: number;
-                    if (r === g) {
-                        // 8-bit grayscale (fallback)
-                        normalized = r / 255;
-                    } else {
-                        // 16-bit encoded: R = high byte, G = low byte
-                        const value16 = (r << 8) | g;
-                        normalized = value16 / 65535;
-                    }
+                    // Reconstruct 16-bit value from RG encoding
+                    const value16 = (r << 8) | g;
+                    const normalized = value16 / 65535;
 
+                    // Convert normalized [0,1] back to original height range
                     heightmap[i] = min + normalized * range;
                 }
 

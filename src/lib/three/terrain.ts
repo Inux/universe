@@ -526,7 +526,7 @@ export function createTerrainMesh(
     const geometry = new THREE.PlaneGeometry(size, size, resolution - 1, resolution - 1);
     const positions = geometry.attributes.position;
     const colors: number[] = [];
-    const heights: number[] = []; // Store heights for later use
+    const heights = new Float32Array(positions.count); // Store heights as typed array
 
     // Height scaling - make terrain more dramatic
     const heightScale = 30; // Max height variation in units
@@ -557,7 +557,7 @@ export function createTerrainMesh(
         const height = (baseHeight / config.amplitude) * heightScale;
 
         positions.setZ(i, height);
-        heights.push(height);
+        heights[i] = height;
 
         // Get color for this height with biome support
         const color = generator.getColor(baseHeight, nx, nz);
@@ -580,20 +580,21 @@ export function createTerrainMesh(
     mesh.receiveShadow = true;
     mesh.castShadow = true;
 
-    // Store terrain data for height queries
-    mesh.userData.terrainSize = size;
-    mesh.userData.terrainResolution = resolution;
-    mesh.userData.heights = heights;
-    mesh.userData.heightScale = heightScale;
-
-    // Debug: log height range (use loop to avoid stack overflow on large arrays)
+    // Calculate height range for consistent API with pre-generated terrain
     let minH = Infinity;
     let maxH = -Infinity;
     for (let i = 0; i < heights.length; i++) {
         if (heights[i] < minH) minH = heights[i];
         if (heights[i] > maxH) maxH = heights[i];
     }
-    console.log(`Terrain heights: min=${minH.toFixed(2)}, max=${maxH.toFixed(2)}`);
+
+    // Store terrain data for height queries
+    mesh.userData.terrainSize = size;
+    mesh.userData.terrainResolution = resolution;
+    mesh.userData.heights = heights;
+    mesh.userData.heightScale = heightScale;
+    mesh.userData.heightMin = minH;
+    mesh.userData.heightMax = maxH;
 
     return mesh;
 }
@@ -606,15 +607,9 @@ export async function createTerrainFromPreGenerated(
     size: number = 1000,
     meshResolution: number = 256 // Mesh segments (256x256 = ~130k triangles)
 ): Promise<THREE.Mesh> {
-    console.log(`Loading pre-generated terrain for ${planetName}...`);
-
     // Load terrain data
     const terrainData = await loadPreGeneratedTerrain(planetName);
     const { heightmap, width, height, metadata, normalmap } = terrainData;
-
-    console.log(`  Heightmap: ${width}x${height}`);
-    console.log(`  Mesh segments: ${meshResolution}x${meshResolution}`);
-    console.log(`  Height range: ${metadata.heightmap.min.toFixed(3)} - ${metadata.heightmap.max.toFixed(3)}`);
 
     // Create geometry with lower resolution for rendering performance
     // Heightmap stays high-res for collision detection
@@ -696,7 +691,6 @@ export async function createTerrainFromPreGenerated(
         normalmapTexture.repeat.set(4, 4);
         materialOptions.normalMap = normalmapTexture;
         materialOptions.normalScale = new THREE.Vector2(0.8, 0.8);
-        console.log(`  Applied normalmap with 4x tiling`);
     }
 
     const material = new THREE.MeshStandardMaterial(materialOptions);
@@ -707,15 +701,22 @@ export async function createTerrainFromPreGenerated(
     mesh.receiveShadow = true;
     mesh.castShadow = true;
 
-    // Store terrain data - keep as Float32Array for memory efficiency
+    // Create scaled heights array for collision/minimap (matches rendered mesh)
+    // Heights are normalized to [0,1] then scaled by heightScale
+    const scaledHeights = new Float32Array(heightmap.length);
+    const heightRange = metadata.heightmap.max - metadata.heightmap.min;
+    for (let i = 0; i < heightmap.length; i++) {
+        const normalized = (heightmap[i] - metadata.heightmap.min) / heightRange;
+        scaledHeights[i] = normalized * heightScale;
+    }
+
+    // Store terrain data - heights are scaled to match rendered mesh
     mesh.userData.terrainSize = size;
     mesh.userData.terrainResolution = width;
-    mesh.userData.heights = heightmap; // Keep Float32Array directly
+    mesh.userData.heights = scaledHeights; // Scaled heights for collision
     mesh.userData.heightScale = heightScale;
-    mesh.userData.heightMin = metadata.heightmap.min;
-    mesh.userData.heightMax = metadata.heightmap.max;
-
-    console.log(`✓ Terrain loaded for ${planetName}`);
+    mesh.userData.heightMin = 0;
+    mesh.userData.heightMax = heightScale;
 
     return mesh;
 }
@@ -759,8 +760,6 @@ export function createTerrainChunkGrid(
     group.userData.gridSize = gridSize;
     group.userData.planetName = planetName;
     group.userData.resolution = resolution;
-
-    console.log(`Created ${gridSize}x${gridSize} terrain chunk grid, chunk size: ${chunkSize}`);
 
     return group;
 }
@@ -815,7 +814,7 @@ export function updateTerrainChunks(
 export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: number): number {
     const size = terrain.userData.terrainSize as number;
     const resolution = terrain.userData.terrainResolution as number;
-    const heights = terrain.userData.heights as number[];
+    const heights = terrain.userData.heights as Float32Array;
 
     if (!size || !resolution || !heights) {
         console.error('Terrain data missing');
@@ -823,11 +822,6 @@ export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: nu
     }
 
     const halfSize = size / 2;
-
-    // Debug: log input
-    if (Math.random() < 0.001) {
-        console.log(`getTerrainHeight: world(${worldX.toFixed(1)}, ${worldZ.toFixed(1)}), size=${size}`);
-    }
 
     // The terrain mesh is centered at origin, spanning from -halfSize to +halfSize
     // Account for 180° Z rotation which flips X axis
@@ -845,11 +839,6 @@ export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: nu
     while (localZ > halfSize) localZ -= size;
     while (localZ < -halfSize) localZ += size;
 
-    // Debug: wrapped coords
-    if (Math.random() < 0.001) {
-        console.log(`Wrapped: local(${localX.toFixed(1)}, ${localZ.toFixed(1)})`);
-    }
-
     // The terrain mesh is rotated:
     // 1. -90° on X axis: plane goes from XY to XZ plane
     // 2. 180° on Z axis: flips the orientation
@@ -862,19 +851,9 @@ export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: nu
     const geoX = -localX; // Flip X due to 180° Z rotation
     const geoY = localZ;  // Z becomes Y after -90° X rotation
 
-    // Debug: geometry coords
-    if (Math.random() < 0.001) {
-        console.log(`Geometry: geo(${geoX.toFixed(1)}, ${geoY.toFixed(1)})`);
-    }
-
     // Convert from geometry coords [-halfSize, halfSize] to normalized [0, 1]
     const normX = (geoX + halfSize) / size;
     const normY = (geoY + halfSize) / size;
-
-    // Debug: normalized coords
-    if (Math.random() < 0.001) {
-        console.log(`Normalized: norm(${normX.toFixed(3)}, ${normY.toFixed(3)})`);
-    }
 
     // Clamp to valid range
     const clampedNormX = Math.max(0, Math.min(1, normX));
@@ -883,11 +862,6 @@ export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: nu
     // Convert to grid indices
     const gridX = clampedNormX * (resolution - 1);
     const gridY = clampedNormY * (resolution - 1);
-
-    // Debug: grid indices
-    if (Math.random() < 0.001) {
-        console.log(`Grid: grid(${gridX.toFixed(1)}, ${gridY.toFixed(1)}), res=${resolution}`);
-    }
 
     // Get integer indices
     const x0 = Math.floor(gridX);
@@ -909,12 +883,6 @@ export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: nu
     const h0 = h00 * (1 - fx) + h10 * fx;
     const h1 = h01 * (1 - fx) + h11 * fx;
     const height = h0 * (1 - fy) + h1 * fy;
-
-    // Debug: final height
-    if (Math.random() < 0.001) {
-        console.log(`Heights: h00=${h00.toFixed(2)}, h10=${h10.toFixed(2)}, h01=${h01.toFixed(2)}, h11=${h11.toFixed(2)}`);
-        console.log(`Interpolated: ${height.toFixed(2)}`);
-    }
 
     return height;
 }
@@ -1202,13 +1170,20 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
                 float skyFactor = max(h, 0.0);
                 vec3 dayColor = mix(bottomColor, topColor, pow(skyFactor, exponent));
 
+                // Atmospheric scattering - horizon haze effect
+                // More scattering near horizon (h close to 0)
+                float horizonFactor = 1.0 - abs(h);
+                horizonFactor = pow(horizonFactor, 3.0); // Concentrate near horizon
+                vec3 scatterColor = mix(bottomColor, vec3(1.0, 0.95, 0.9), 0.3); // Warm haze
+                dayColor = mix(dayColor, scatterColor, horizonFactor * 0.4 * dayNightMix);
+
                 // Night sky color (no procedural stars - we have separate starfield mesh)
                 vec3 nightSky = nightColor;
 
                 // Mix day and night based on sun position using dayNightMix uniform
                 vec3 finalColor = mix(nightSky, dayColor, dayNightMix);
 
-                // Below horizon (inverted h < 0) - dark ground color
+                // Below horizon (inverted h < 0) - dark ground color with atmospheric fade
                 if (h < 0.0) {
                     vec3 groundColor = bottomColor * 0.2;
                     finalColor = mix(groundColor, finalColor, smoothstep(-0.2, 0.0, h));
@@ -1248,11 +1223,6 @@ export function createStarfield(radius: number = 900): THREE.Points {
         positions[i * 3] = Math.cos(angle) * distance;     // X
         positions[i * 3 + 1] = height;                     // Y (always positive = above)
         positions[i * 3 + 2] = Math.sin(angle) * distance; // Z
-
-        // Debug first few
-        if (i < 3) {
-            console.log(`Star ${i}: (${positions[i * 3].toFixed(1)}, ${positions[i * 3 + 1].toFixed(1)}, ${positions[i * 3 + 2].toFixed(1)})`);
-        }
 
         // White stars
         colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;

@@ -157,9 +157,27 @@ Glass-morphism styled panel with:
 
 Surface view prefers pre-generated terrains generated offline and shipped as static assets:
 
-1. `tools/terrain-generator` creates `public/terrains/{planet}/heightmap.png` (16-bit), `normalmap.png`, and `metadata.json`.
+1. `tools/terrain-generator` creates `public/terrains/{planet}/heightmap.png` (RG-encoded 16-bit), `normalmap.png`, and `metadata.json`.
 2. Runtime loads them via `terrainLoader.ts` (`loadPreGeneratedTerrain`) and builds a displaced `PlaneGeometry` via `terrain.ts` (`createTerrainFromPreGenerated`).
 3. The terrain mesh stores size/resolution/heights in `mesh.userData` for collision + minimap (`getTerrainHeight`, `Minimap.vue`).
+
+### Heightmap Encoding (16-bit via RG channels)
+
+Browser Canvas API only supports 8-bit per channel, so true 16-bit grayscale PNG cannot be decoded. The terrain generator encodes 16-bit height values as:
+- **R channel** = high byte (bits 8-15)
+- **G channel** = low byte (bits 0-7)
+- **B channel** = unused (0)
+
+This provides full 65536-level precision using standard 8-bit RGB PNG that browsers can decode.
+
+### Height Data Storage
+
+All terrain meshes store height data in `mesh.userData`:
+- `terrainSize`: World size of terrain (e.g., 1000 units)
+- `terrainResolution`: Grid resolution (e.g., 1024 for pre-generated, 256 for procedural)
+- `heights`: `Float32Array` of scaled heights matching rendered mesh
+- `heightScale`: Maximum height value (default 30 units)
+- `heightMin` / `heightMax`: Height range for normalization
 
 ### Runtime Terrain (Fallback)
 

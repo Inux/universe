@@ -48,7 +48,13 @@ export class TerrainExporter {
     }
 
     /**
-     * Export heightmap as 16-bit grayscale PNG
+     * Export heightmap as RG-encoded PNG (16-bit precision via R=high byte, G=low byte)
+     *
+     * Browser Canvas API only supports 8-bit per channel, so true 16-bit grayscale
+     * cannot be decoded. This format encodes 16-bit values as:
+     *   R channel = high byte (bits 8-15)
+     *   G channel = low byte (bits 0-7)
+     *   B channel = 0 (unused)
      */
     private async exportHeightmap(filepath: string, heightmap: HeightmapData): Promise<void> {
         // Find min/max for normalization
@@ -61,15 +67,16 @@ export class TerrainExporter {
 
         const range = max - min;
         console.log(`  Normalizing heightmap: ${min.toFixed(3)} - ${max.toFixed(3)} → 0.0 - 1.0`);
+        console.log(`  Encoding as RG (R=high byte, G=low byte) for browser compatibility`);
 
         const png = new PNG({
             width: heightmap.width,
             height: heightmap.height,
-            colorType: 0, // Grayscale
-            bitDepth: 16, // 16-bit for precision
+            colorType: 2, // RGB (not grayscale - browsers can't decode 16-bit grayscale)
+            bitDepth: 8,  // 8-bit per channel, but we use RG for 16-bit precision
         });
 
-        // Convert float32 (0-1) to uint16 (0-65535) with normalization
+        // Convert float32 to uint16 encoded as R (high) + G (low)
         for (let y = 0; y < heightmap.height; y++) {
             for (let x = 0; x < heightmap.width; x++) {
                 const idx = y * heightmap.width + x;
@@ -78,15 +85,17 @@ export class TerrainExporter {
                 const normalized = (heightmap.data[idx] - min) / range;
                 const value = Math.floor(normalized * 65535);
 
-                const pngIdx = idx * 2; // 2 bytes per pixel for 16-bit
-                png.data[pngIdx] = (value >> 8) & 0xff; // High byte
-                png.data[pngIdx + 1] = value & 0xff; // Low byte
+                const pngIdx = idx * 4; // 4 bytes per pixel for RGBA (pngjs uses RGBA internally)
+                png.data[pngIdx + 0] = (value >> 8) & 0xff; // R = high byte
+                png.data[pngIdx + 1] = value & 0xff;        // G = low byte
+                png.data[pngIdx + 2] = 0;                   // B = unused
+                png.data[pngIdx + 3] = 255;                 // A = full opacity
             }
         }
 
         const buffer = PNG.sync.write(png);
         await fs.writeFile(filepath, buffer);
-        console.log(`  ✓ Heightmap saved: ${path.basename(filepath)}`);
+        console.log(`  ✓ Heightmap saved: ${path.basename(filepath)} (RG-encoded 16-bit)`);
     }
 
     /**
