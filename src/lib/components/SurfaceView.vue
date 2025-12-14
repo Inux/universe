@@ -6,7 +6,7 @@
       <!-- Loading overlay -->
       <div v-if="isLoading" class="loading-overlay">
         <div class="loading-spinner"></div>
-        <div class="loading-text">Generating {{ displayPlanet }} terrain...</div>
+        <div class="loading-text">Loading {{ displayPlanet }} terrain...</div>
       </div>
 
       <!-- HUD -->

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createNoise2D, createNoise3D } from 'simplex-noise';
+import { loadPreGeneratedTerrain, type LoadedTerrain } from './terrainLoader.js';
 
 /**
  * Biome types for Earth-like planets
@@ -589,6 +590,107 @@ export function createTerrainMesh(
     const minH = Math.min(...heights);
     const maxH = Math.max(...heights);
     console.log(`Terrain heights: min=${minH.toFixed(2)}, max=${maxH.toFixed(2)}`);
+
+    return mesh;
+}
+
+/**
+ * Creates terrain mesh from pre-generated heightmap data
+ */
+export async function createTerrainFromPreGenerated(
+    planetName: string,
+    size: number = 1000
+): Promise<THREE.Mesh> {
+    console.log(`Loading pre-generated terrain for ${planetName}...`);
+
+    // Load terrain data
+    const terrainData = await loadPreGeneratedTerrain(planetName);
+    const { heightmap, width, height, metadata } = terrainData;
+
+    console.log(`  Resolution: ${width}x${height}`);
+    console.log(`  Height range: ${metadata.heightmap.min.toFixed(3)} - ${metadata.heightmap.max.toFixed(3)}`);
+
+    // Create geometry
+    const geometry = new THREE.PlaneGeometry(size, size, width - 1, height - 1);
+    const positions = geometry.attributes.position;
+    const colors: number[] = [];
+
+    // Get config for this planet
+    const config = TERRAIN_CONFIGS[planetName] || TERRAIN_CONFIGS.earth;
+    const generator = new TerrainGenerator(config, planetName.length * 1000);
+
+    // Height scaling
+    const heightScale = 30; // Match the generator scale
+
+    // Apply heights from pre-generated heightmap
+    for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const z = positions.getY(i);
+
+        // Map position to heightmap coordinates
+        const nx = ((x / size) + 0.5) * (width - 1);
+        const nz = ((z / size) + 0.5) * (height - 1);
+
+        // Bilinear interpolation for smooth height lookup
+        const ix = Math.floor(nx);
+        const iz = Math.floor(nz);
+        const fx = nx - ix;
+        const fz = nz - iz;
+
+        const ix1 = Math.min(ix + 1, width - 1);
+        const iz1 = Math.min(iz + 1, height - 1);
+
+        const h00 = heightmap[iz * width + ix];
+        const h10 = heightmap[iz * width + ix1];
+        const h01 = heightmap[iz1 * width + ix];
+        const h11 = heightmap[iz1 * width + ix1];
+
+        const h0 = h00 * (1 - fx) + h10 * fx;
+        const h1 = h01 * (1 - fx) + h11 * fx;
+        const baseHeight = h0 * (1 - fz) + h1 * fz;
+
+        // Normalize height to 0-1 range using metadata min/max
+        const normalizedHeight = (baseHeight - metadata.heightmap.min) / (metadata.heightmap.max - metadata.heightmap.min);
+
+        // Scale to match amplitude range for getColor compatibility
+        const scaledHeight = normalizedHeight * config.amplitude;
+
+        // Apply height scale for display
+        const finalHeight = normalizedHeight * heightScale;
+
+        positions.setZ(i, finalHeight);
+
+        // Generate color based on height (reuse existing color logic)
+        const noiseX = ((x / size) + 0.5) * 3;
+        const noiseZ = ((z / size) + 0.5) * 3;
+        const color = generator.getColor(scaledHeight, noiseX, noiseZ);
+
+        colors.push(color.r, color.g, color.b);
+    }
+
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        flatShading: false,
+        roughness: 0.8,
+        metalness: 0.1,
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = Math.PI;
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+
+    // Store terrain data
+    mesh.userData.terrainSize = size;
+    mesh.userData.terrainResolution = width;
+    mesh.userData.heights = Array.from(heightmap); // Store for collision detection
+    mesh.userData.heightScale = heightScale;
+
+    console.log(`✓ Terrain loaded for ${planetName}`);
 
     return mesh;
 }

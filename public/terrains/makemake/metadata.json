@@ -1,0 +1,27 @@
+{
+  "planet": "makemake",
+  "type": "dwarf",
+  "generation": {
+    "resolution": 1024,
+    "terrainScale": 0.4,
+    "roughness": 0.3,
+    "erosionIntensity": 0,
+    "generationTime": 1.385
+  },
+  "heightmap": {
+    "min": 0.05542723834514618,
+    "max": 0.3201666474342346,
+    "avg": 0.1950246863706404
+  },
+  "config": {
+    "gravity": 0.5,
+    "hasAtmosphere": false,
+    "hasWater": true,
+    "temperature": 40,
+    "hasBiomes": false
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

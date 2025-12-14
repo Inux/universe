@@ -1,0 +1,25 @@
+{
+  "name": "terrain-generator",
+  "version": "1.0.0",
+  "description": "Advanced terrain generation tool for Universe Browser Game",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "generate": "tsc && node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": ["terrain", "procedural", "erosion"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "simplex-noise": "^4.0.3",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pngjs": "^6.0.5",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2"
+  }
+}

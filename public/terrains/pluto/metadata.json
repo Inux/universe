@@ -1,0 +1,27 @@
+{
+  "planet": "pluto",
+  "type": "dwarf",
+  "generation": {
+    "resolution": 1024,
+    "terrainScale": 0.7,
+    "roughness": 0.4,
+    "erosionIntensity": 0.1,
+    "generationTime": 1.362
+  },
+  "heightmap": {
+    "min": 0.17620903253555298,
+    "max": 0.5955111384391785,
+    "avg": 0.41210015871210715
+  },
+  "config": {
+    "gravity": 0.62,
+    "hasAtmosphere": true,
+    "hasWater": true,
+    "temperature": 44,
+    "hasBiomes": false
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

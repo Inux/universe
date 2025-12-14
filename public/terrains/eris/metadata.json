@@ -1,0 +1,27 @@
+{
+  "planet": "eris",
+  "type": "dwarf",
+  "generation": {
+    "resolution": 1024,
+    "terrainScale": 0.5,
+    "roughness": 0.3,
+    "erosionIntensity": 0,
+    "generationTime": 1.383
+  },
+  "heightmap": {
+    "min": 0.07621584832668304,
+    "max": 0.3920772969722748,
+    "avg": 0.2387267103288977
+  },
+  "config": {
+    "gravity": 0.82,
+    "hasAtmosphere": false,
+    "hasWater": true,
+    "temperature": 42,
+    "hasBiomes": false
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

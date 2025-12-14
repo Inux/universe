@@ -1,0 +1,27 @@
+{
+  "planet": "moon",
+  "type": "terrestrial",
+  "generation": {
+    "resolution": 1024,
+    "terrainScale": 0.6,
+    "roughness": 0.5,
+    "erosionIntensity": 0,
+    "generationTime": 1.383
+  },
+  "heightmap": {
+    "min": 0.13896284997463226,
+    "max": 0.4650370180606842,
+    "avg": 0.3128226498481155
+  },
+  "config": {
+    "gravity": 1.62,
+    "hasAtmosphere": false,
+    "hasWater": false,
+    "temperature": 250,
+    "hasBiomes": false
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

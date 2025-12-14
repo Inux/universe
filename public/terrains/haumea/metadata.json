@@ -1,0 +1,27 @@
+{
+  "planet": "haumea",
+  "type": "dwarf",
+  "generation": {
+    "resolution": 1024,
+    "terrainScale": 0.3,
+    "roughness": 0.2,
+    "erosionIntensity": 0,
+    "generationTime": 1.375
+  },
+  "heightmap": {
+    "min": 0.025036629289388657,
+    "max": 0.24388062953948975,
+    "avg": 0.14291783919730072
+  },
+  "config": {
+    "gravity": 0.44,
+    "hasAtmosphere": false,
+    "hasWater": true,
+    "temperature": 32,
+    "hasBiomes": false
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}
