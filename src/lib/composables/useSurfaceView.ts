@@ -113,8 +113,9 @@ export function useSurfaceView(
         renderer.value.shadowMap.type = THREE.PCFSoftShadowMap;
         containerRef.value.appendChild(renderer.value.domElement);
 
-        // First-person controls with pointer lock
+        // First-person controls: keep pointer lock but disable mouse-driven rotation
         controls.value = new PointerLockControls(camera.value, renderer.value.domElement);
+        (controls.value as any).onMouseMove = () => {}; // prevent mouse rotation
         scene.value.add(controls.value.getObject());
 
         // Click to lock pointer for first-person control
@@ -343,7 +344,7 @@ export function useSurfaceView(
     function updatePhysics(delta: number) {
         if (!camera.value) return;
 
-        const moveSpeed = 10; // Walking speed
+        const moveSpeed = 18; // Walking speed (faster)
         const sprintMultiplier = moveState.sprint ? 2 : 1;
 
         if (useSphericalTerrain.value) {
@@ -474,19 +475,26 @@ export function useSurfaceView(
                 camera.value.up.copy(upVector);
             }
 
+            // Auto-correct any residual roll with gentle damping
+            const rollDamping = 0.85;
+            camera.value.rotation.z *= rollDamping;
+            if (Math.abs(camera.value.rotation.z) < 0.0001) {
+                camera.value.rotation.z = 0;
+            }
+
             // JUMPING LOGIC FOR FLAT TERRAIN
             // Jump - must be checked BEFORE applying gravity
             if (moveState.jump && isGrounded) {
-                playerVelocity.y = Math.sqrt(2 * currentGravity * 4); // Increased to 4m jump for better feel
+                playerVelocity.y = Math.sqrt(2 * currentGravity * 6); // Higher jump
                 isGrounded = false;
                 moveState.jump = false; // Consume the jump
             }
 
-            // Apply gravity when not grounded - MUCH stronger for realistic feel
+            // Apply gravity when not grounded - stronger but balanced
             if (!isGrounded) {
-                playerVelocity.y -= currentGravity * 8 * delta; // Increased gravity dramatically
+                playerVelocity.y -= currentGravity * 5 * delta;
                 // Clamp falling speed to prevent tunneling through terrain
-                playerVelocity.y = Math.max(playerVelocity.y, -50); // Reduced max fall speed
+                playerVelocity.y = Math.max(playerVelocity.y, -40);
             }
 
             // Apply vertical velocity

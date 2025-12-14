@@ -755,8 +755,8 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.isSkyDome = true;
-    // TEMP: Disable sky dome rendering to test starfield
-    mesh.visible = false;
+    // Re-enable sky dome rendering
+    mesh.visible = true;
     return mesh;
 }
 
@@ -804,9 +804,12 @@ export function createStarfield(radius: number = 900): THREE.Points {
         transparent: true,
         opacity: 1.0,
         sizeAttenuation: false,
+        depthTest: false, // keep stars visible even with sky dome
+        depthWrite: false,
     });
 
     const stars = new THREE.Points(geometry, material);
+    stars.renderOrder = 1; // render after sky dome
     stars.userData.isStarfield = true;
     return stars;
 }
@@ -834,4 +837,19 @@ export function updateSkyDome(
     }
 
     material.uniforms.dayNightMix.value = dayNightMix;
+
+    // Also fade stars based on sun height (stars brighter at night)
+    // Expect starfield material to be PointsMaterial
+    if ((skyDome as any).parent) {
+        const parent = (skyDome as any).parent as THREE.Scene;
+        parent.traverse((obj) => {
+            if ((obj as any).userData?.isStarfield) {
+                const starMat = (obj as THREE.Points).material as THREE.PointsMaterial;
+                // Stars fully visible at sunHeight <= -0.1, fade out by sunHeight 0.2
+                const opacity = 1 - THREE.MathUtils.smoothstep(sunHeight, -0.1, 0.2);
+                starMat.opacity = opacity;
+                starMat.needsUpdate = true;
+            }
+        });
+    }
 }
