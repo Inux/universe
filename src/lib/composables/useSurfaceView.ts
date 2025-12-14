@@ -50,6 +50,8 @@ export function useSurfaceView(
 
     // Player state for surface exploration
     const playerPosition = ref(new THREE.Vector3(0, 5, 0));
+    const headingDeg = ref(0); // 0-360, 0 = north (+Z), increases clockwise
+    const timeOfDay = ref(0); // 0-1 normalized day cycle
     const playerVelocity = new THREE.Vector3();
     const moveState = {
         forward: false,
@@ -262,7 +264,7 @@ export function useSurfaceView(
         dayTime += delta / dayDuration;
         if (dayTime > 1) dayTime -= 1;
 
-        // Calculate sun position (circular path)
+        // Update sun position (circular path)
         const sunAngle = dayTime * Math.PI * 2 - Math.PI / 2; // Start at horizon
         const sunHeight = Math.sin(sunAngle);
         const sunHorizontal = Math.cos(sunAngle);
@@ -313,6 +315,9 @@ export function useSurfaceView(
         if (hemiLight) {
             hemiLight.intensity = Math.max(0.1, sunHeight * 0.4 + 0.2);
         }
+
+        // Expose normalized time for HUD
+        timeOfDay.value = dayTime;
     }
 
     function animate() {
@@ -528,6 +533,21 @@ export function useSurfaceView(
                 isGrounded = false;
             }
         }
+
+        // Update HUD values
+        if (camera.value) {
+            playerPosition.value.copy(camera.value.position);
+            // Heading from camera forward vector on XZ plane
+            camera.value.getWorldDirection(tempVector3);
+            tempVector3.y = 0;
+            if (tempVector3.lengthSq() > 0) {
+                tempVector3.normalize();
+                const angleRad = Math.atan2(tempVector3.x, tempVector3.z); // 0 = +Z
+                let deg = THREE.MathUtils.radToDeg(angleRad);
+                if (deg < 0) deg += 360;
+                headingDeg.value = deg;
+            }
+        }
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -652,6 +672,9 @@ export function useSurfaceView(
         isActive,
         isLoading,
         currentPlanet,
+        playerPosition,
+        headingDeg,
+        timeOfDay,
         enter,
         exit,
     };

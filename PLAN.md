@@ -35,13 +35,13 @@
   - Ice formations on cold planets
 
 ### 7.5: UI/UX for Surface View
-- [ ] **HUD elements**
-  - Compass/direction indicator
-  - Coordinates display
-  - Time of day indicator
-- [ ] **Controls hint overlay**
-  - Show WASD, mouse, sprint, jump controls
-  - Fade out after a few seconds
+- [x] **HUD elements**
+  - ✅ Compass/direction indicator
+  - ✅ Coordinates display
+  - ✅ Time of day indicator
+- [x] **Controls hint overlay**
+  - ✅ Show WASD, mouse, sprint, jump controls
+  - ✅ Fade out after a few seconds
 - [ ] **Minimap** (optional)
   - Top-down view of nearby terrain
   - Player position and direction
