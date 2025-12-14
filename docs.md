@@ -14,6 +14,7 @@ src/
 │   ├── components/      # Vue components
 │   │   ├── ThreeCanvas.vue   # Solar system 3D canvas
 │   │   ├── SurfaceView.vue   # Planet surface exploration
+│   │   ├── Minimap.vue       # 2D minimap (terrain + player marker)
 │   │   ├── InfoPanel.vue     # Planet info panel
 │   │   └── ControlsHint.vue  # Keyboard controls overlay
 │   ├── composables/     # Vue composables
@@ -21,7 +22,8 @@ src/
 │   │   └── useSurfaceView.ts # Surface exploration scene
 │   ├── three/           # Three.js modules
 │   │   ├── solarSystem.ts    # Planet data, orbital mechanics
-│   │   ├── terrain.ts        # Procedural terrain (simplex noise)
+│   │   ├── terrain.ts        # Terrain meshes (runtime + pre-generated integration)
+│   │   ├── terrainLoader.ts  # Loads pre-generated terrain assets
 │   │   ├── skybox.ts         # Starfield, nebulae, galaxies
 │   │   ├── shaders.ts        # Atmosphere, sun glow shaders
 │   │   ├── rings.ts          # Saturn/Uranus rings
@@ -30,13 +32,21 @@ src/
 │       └── planetData.ts     # Extended planet information
 ```
 
+### Related Directories
+
+- `public/terrains/{planet}/` - Pre-generated terrain assets (`heightmap.png`, `normalmap.png`, `metadata.json`)
+- `tools/terrain-generator/` - Offline terrain generator (Node/TypeScript) that writes `public/terrains/`
+
 ### Module Responsibilities
 
 | Module | Purpose |
 |--------|---------|
+| `App.vue` | View switching between solar system and surface view |
 | `useThreeScene.ts` | Solar system scene, camera, controls, raycasting |
 | `useSurfaceView.ts` | Surface exploration scene, movement, physics |
-| `terrain.ts` | Procedural terrain with fBm noise, planet-specific configs |
+| `Minimap.vue` | 2D minimap rendering using terrain height data |
+| `terrain.ts` | Terrain meshes, height queries (`getTerrainHeight`), runtime fallback generation |
+| `terrainLoader.ts` | Loads and decodes pre-generated heightmaps + metadata |
 | `skybox.ts` | Starfield generation, nebula effects, distant galaxies |
 | `shaders.ts` | Fresnel atmosphere shaders, sun glow/corona effects |
 | `rings.ts` | Procedural ring textures for Saturn and Uranus |
@@ -143,9 +153,17 @@ Glass-morphism styled panel with:
 
 ## Surface Exploration
 
-### Terrain Generation
+### Terrain Pipeline (Offline → Runtime)
 
-Uses fractal Brownian motion (fBm) with simplex noise:
+Surface view prefers pre-generated terrains generated offline and shipped as static assets:
+
+1. `tools/terrain-generator` creates `public/terrains/{planet}/heightmap.png` (16-bit), `normalmap.png`, and `metadata.json`.
+2. Runtime loads them via `terrainLoader.ts` (`loadPreGeneratedTerrain`) and builds a displaced `PlaneGeometry` via `terrain.ts` (`createTerrainFromPreGenerated`).
+3. The terrain mesh stores size/resolution/heights in `mesh.userData` for collision + minimap (`getTerrainHeight`, `Minimap.vue`).
+
+### Runtime Terrain (Fallback)
+
+If no pre-generated assets exist, runtime procedural generation is used (fBm simplex noise):
 
 ```typescript
 for (let i = 0; i < octaves; i++) {
@@ -154,6 +172,12 @@ for (let i = 0; i < octaves; i++) {
     frequency *= lacunarity;   // Increase frequency each octave
 }
 ```
+
+### Current Surface Rendering Notes
+
+- Fog is currently disabled in `useSurfaceView.ts` to avoid banding artifacts.
+- Star brightness is intended to fade with the day/night cycle; star opacity is currently forced to full for debugging.
+- Ground collision currently uses a downward raycast; `getTerrainHeight` exists for faster sampling-based collision.
 
 ### Planet-Specific Terrain Configs
 
@@ -179,3 +203,4 @@ for (let i = 0; i < octaves; i++) {
 - **vue** (^3.x) - UI framework
 - **three** (^0.159.0) - 3D rendering
 - **simplex-noise** (^4.0.0) - Procedural terrain generation
+- **pngjs** (tooling) - Used by `tools/terrain-generator` to write 16-bit PNG heightmaps

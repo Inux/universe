@@ -11,9 +11,10 @@ A browser-based 3D solar system explorer built with Vue.js, Three.js, and TypeSc
 - **Camera Controls** - Smooth orbit controls with planet focus transitions
 
 ### Surface Exploration
-- **Advanced Terrain Generation**
-  - Procedural terrain with noise-based generation (500x500 units, 256 resolution)
-  - Dramatic height variations (30 unit scale)
+- **Advanced Terrain Generation (Offline + Runtime)**
+  - Pre-generated 16-bit heightmaps (default: 1024×1024) generated via `tools/terrain-generator`
+  - Runtime integration loads `/public/terrains/{planet}/heightmap.png` + `metadata.json`
+  - Fallback to runtime simplex-noise terrain generation if pre-generated assets are missing
 - **Biome System (Earth)**
   - 7 distinct biomes: Plains, Forest, Desert, Tundra, Mountain, Beach, Ocean
   - Temperature and moisture-based biome distribution
@@ -25,7 +26,7 @@ A browser-based 3D solar system explorer built with Vue.js, Three.js, and TypeSc
   - Realistic physics with terrain collision
 - **Visual Features**
   - Day/night cycle with dynamic lighting
-  - Atmospheric fog and Mars dust particles
+  - Mars dust particles
   - Shadow mapping and advanced lighting
 - **UI/UX**
   - Real-time HUD (coordinates, heading, time, gravity)
@@ -40,6 +41,20 @@ A browser-based 3D solar system explorer built with Vue.js, Three.js, and TypeSc
 ```bash
 npm install
 npm run dev
+```
+
+## Optional: Generate Pre-Generated Terrains
+
+Terrain heightmaps are already expected in `public/terrains/`. To regenerate them:
+
+```bash
+npm run generate:terrains
+```
+
+Or generate a single planet:
+
+```bash
+npm run generate:terrain -- earth
 ```
 
 ## Controls
@@ -80,6 +95,7 @@ universe/
 │       ├── components/     # Vue components
 │       │   ├── ThreeCanvas.vue
 │       │   ├── InfoPanel.vue
+│       │   ├── Minimap.vue
 │       │   ├── SurfaceView.vue
 │       │   └── ControlsHint.vue
 │       ├── composables/    # Vue composables
@@ -88,6 +104,7 @@ universe/
 │       ├── three/          # Three.js modules
 │       │   ├── solarSystem.ts
 │       │   ├── terrain.ts
+│       │   ├── terrainLoader.ts
 │       │   ├── skybox.ts
 │       │   ├── shaders.ts
 │       │   ├── rings.ts
@@ -95,7 +112,10 @@ universe/
 │       └── data/           # Static data
 │           └── planetData.ts
 ├── public/
+│   ├── terrains/            # Pre-generated terrain assets (heightmap/normalmap/metadata)
 │   └── textures/           # Planet textures
+├── tools/
+│   └── terrain-generator/   # Offline terrain generation tool (Node/TS)
 ├── index.html
 ├── package.json
 ├── tsconfig.json

@@ -4,101 +4,126 @@
 
 ---
 
+## Phase 0: Engine Hardening (Highest Priority)
+*Complexity: Medium | Impact: Critical*
+
+- [ ] **Pre-generated terrain correctness**
+  - [ ] Fix 16-bit heightmap loading (current canvas decode is effectively 8-bit)
+  - [ ] Store heights as typed arrays (avoid `Array.from` on 1M+ samples)
+  - [ ] Ensure `userData.heights` matches rendered displacement (collision/minimap correctness)
+  - [ ] Use normalmap in terrain material (lighting realism) and add optional detail normal tiling
+
+- [ ] **Surface performance**
+  - [ ] Replace per-frame terrain raycasting with heightmap sampling (`getTerrainHeight`) for ground collision
+  - [ ] Reduce terrain render geometry (shader displacement / LOD) to keep triangles < ~200k
+  - [ ] Remove debug logs and expensive spread ops (e.g. `Math.min(...heights)`)
+  - [ ] Minimap: throttle redraw (5-10Hz) and precompute low-res height tiles
+
+- [ ] **Rendering realism quick wins**
+  - [ ] Enable ACES tonemapping + sRGB output + physically correct lights (both scenes)
+  - [ ] Switch planet materials to PBR (`MeshStandardMaterial`) with roughness/normal maps where available
+  - [ ] Re-enable star fading at night (remove forced `opacity = 1.0`)
+  - [ ] Remove fog completely as the users want to see the sky & sun and at night the stars
+
+- [ ] **Data/architecture unification**
+  - [ ] Single source of truth for planet constants (solar system, info panel, terrain configs, generator configs)
+  - [ ] Add a small perf HUD (FPS, draw calls, triangles) for regression tracking
+
 ## Phase 7: First-Person Surface Experience (GTA5-style)
 *Complexity: High | Impact: Very High*
 
-### 7.3: Terrain Generation Overhaul ✅ COMPLETED
+### 7.3: Terrain Generation Overhaul
 - [x] **Interesting terrain features**
-  - ✅ Increased terrain amplitude for dramatic mountains/valleys
-  - ✅ Height scale of 30 units variation
-  - ✅ Larger terrain (500x500) with 256 resolution
+  - Increased terrain amplitude for dramatic mountains/valleys
+  - Height scale of 30 units variation
+  - Larger terrain (500x500) with 256 resolution
 - [x] **Biome system for Earth**
-  - ✅ Multiple biomes: Plains, Forest, Desert, Tundra, Mountain, Beach, Ocean
-  - ✅ Noise-based biome generation using temperature and moisture
-  - ✅ Smooth biome transitions with gradient blending
-  - ✅ Biome-specific colors and textures
-  - ✅ Biome-specific terrain height modifiers
+  - Multiple biomes: Plains, Forest, Desert, Tundra, Mountain, Beach, Ocean
+  - Noise-based biome generation using temperature and moisture
+  - Smooth biome transitions with gradient blending
+  - Biome-specific colors and textures
+  - Biome-specific terrain height modifiers
 - [x] **Performance optimizations**
-  - ✅ LOD system foundation (createTerrainLOD function)
-  - ✅ Prop culling based on distance from player
-  - ✅ Distance-based prop visibility (150 unit cull distance)
+  - LOD system foundation (createTerrainLOD function)
+  - Prop culling based on distance from player
+  - Distance-based prop visibility (150 unit cull distance)
 
-### 7.4: Visual Polish ✅ COMPLETED
-- [x] **Atmospheric effects**
-  - ✅ Fog based on atmosphere density
-  - ✅ Dust particles on Mars
+### 7.4: Visual Polish 🔄 IN PROGRESS
+- [ ] **Atmospheric effects**
+  - [ ] Fog based on atmosphere density (currently disabled; rework to avoid banding artifacts)
+  - [x] Dust particles on Mars
 - [x] **Improved lighting**
-  - ✅ Directional sun light with day/night cycle
-  - ✅ Rim lighting on terrain edges
-  - ✅ Shadow mapping enabled
-  - ✅ Hemisphere lighting for sky/ground color
+  - Directional sun light with day/night cycle
+  - Rim lighting on terrain edges
+  - Shadow mapping enabled
+  - Hemisphere lighting for sky/ground color
 - [x] **Props and details**
-  - ✅ Biome-specific props (200+ props on Earth)
-  - ✅ Forest biome: Dense trees with varied sizes
-  - ✅ Plains biome: Sparse bushes and grass
-  - ✅ Desert biome: Cacti and desert rocks
-  - ✅ Tundra biome: Ice formations and snow patches
-  - ✅ Mountain biome: Rocky outcrops with snow peaks
-  - ✅ Beach biome: Palm trees
-  - ✅ Rocks on other planets
-  - ✅ Ice formations on cold planets (Pluto, Eris, etc.)
+  - Biome-specific props (200+ props on Earth)
+  - Forest biome: Dense trees with varied sizes
+  - Plains biome: Sparse bushes and grass
+  - Desert biome: Cacti and desert rocks
+  - Tundra biome: Ice formations and snow patches
+  - Mountain biome: Rocky outcrops with snow peaks
+  - Beach biome: Palm trees
+  - Rocks on other planets
+  - Ice formations on cold planets (Pluto, Eris, etc.)
 
-### 7.5: UI/UX for Surface View ✅ COMPLETED
+### 7.5: UI/UX for Surface View
 - [x] **HUD elements**
-  - ✅ Compass/direction indicator (heading in degrees)
-  - ✅ Coordinates display (X, Y, Z position)
-  - ✅ Time of day indicator (24-hour clock)
-  - ✅ Planet name display
-  - ✅ Gravity information
-  - ✅ Styled HUD with backdrop blur and modern design
+  - Compass/direction indicator (heading in degrees)
+  - Coordinates display (X, Y, Z position)
+  - Time of day indicator (24-hour clock)
+  - Planet name display
+  - Gravity information
+  - Styled HUD with backdrop blur and modern design
 - [x] **Controls hint overlay**
-  - ✅ Show WASD, mouse, sprint, jump controls
-  - ✅ Fade out after 5 seconds
+  - Show WASD, mouse, sprint, jump controls
+  - Fade out after 5 seconds
 - [x] **Minimap**
-  - ✅ Top-down view of nearby terrain (50 unit radius)
-  - ✅ Real-time terrain heightmap rendering
-  - ✅ Player position indicator (red dot)
-  - ✅ Player direction indicator (arrow)
-  - ✅ Grid overlay for reference
-  - ✅ Height-based terrain coloring
+  - Top-down view of nearby terrain (50 unit radius)
+  - Real-time terrain heightmap rendering
+  - Player position indicator (red dot)
+  - Player direction indicator (arrow)
+  - Grid overlay for reference
+  - Height-based terrain coloring
 
 ---
 
-## Phase 7.6: Critical Surface View Fixes ✅ COMPLETED
+## Phase 7.6: Critical Surface View Fixes
 *Complexity: Medium | Impact: Very High*
 
-### 7.6.1: Camera System Overhaul ✅ COMPLETED
+### 7.6.1: Camera System Overhaul
 - [x] **Fix camera rotation issues**
-  - ✅ Fixed Euler angle gimbal lock by setting rotation order to 'YXZ'
-  - ✅ Yaw rotation now always rotates around world Y axis (no more weird tilting)
-  - ✅ Proper pitch clamping to prevent camera flipping (±72 degrees)
-  - ✅ Roll auto-correction with damping
+  - Fixed Euler angle gimbal lock by setting rotation order to 'YXZ'
+  - Yaw rotation now always rotates around world Y axis (no more weird tilting)
+  - Proper pitch clamping to prevent camera flipping (±72 degrees)
+  - Roll auto-correction with damping
 
 - [x] **Enhanced camera controls**
-  - ✅ Implemented proper mouse look with mousemove events
-  - ✅ Pointer lock integration for FPS-style camera
-  - ✅ Added camera smoothing for landing (smooth vertical interpolation)
-  - ✅ Proper event cleanup on exit
+  - Implemented proper mouse look with mousemove events
+  - Pointer lock integration for FPS-style camera
+  - Added camera smoothing for landing (smooth vertical interpolation)
+  - Proper event cleanup on exit
 
-### 7.6.2: Terrain Edge Visual Fixes ✅ COMPLETED
+### 7.6.2: Terrain Edge Visual Fixes
 - [x] **Fix star density at terrain edges**
-  - ✅ Increased sky dome radius from 800 to 3500 units
-  - ✅ Fixed render order: sky dome (-2), starfield (-1), terrain (0)
-  - ✅ Starfield now smaller than sky dome (0.7x instead of 1.1x)
-  - ✅ Fog distance extended from 450 to 2000 units for horizon blending
+  - Increased sky dome radius from 800 to 3500 units
+  - Fixed render order: sky dome (-2), starfield (-1), terrain (0)
+  - Starfield now smaller than sky dome (0.7x instead of 1.1x)
+  - Fog distance extended from 450 to 2000 units for horizon blending
 
 - [x] **Horizon improvements**
-  - ✅ Distance fog properly blends with sky at horizon
-  - ✅ Fog near distance adjusted to 200 units (doesn't cover nearby terrain)
-  - ✅ Proper depth sorting ensures correct rendering
+  - Distance fog properly blends with sky at horizon
+  - Fog near distance adjusted to 200 units (doesn't cover nearby terrain)
+  - Proper depth sorting ensures correct rendering
 
-### 7.6.3: Seamless Terrain Wrapping ⚠️ PARTIALLY REVERTED
+### 7.6.3: Seamless Terrain Wrapping
 - [x] **Terrain chunking implementation**
-  - ✅ Implemented 3x3 chunk grid system (terrain.ts:600-685)
-  - ✅ Tileable noise using torus mapping (terrain.ts:335-367)
-  - ✅ Dynamic chunk repositioning
-  - ⚠️ **PERFORMANCE ISSUE**: Tileable noise too slow (sin/cos per vertex × 9 chunks)
-  - ⚠️ **TEMPORARILY DISABLED**: Reverted to single 1000×1000 terrain for Phase 7.6
+  - Implemented 3x3 chunk grid system (terrain.ts:600-685)
+  - Tileable noise using torus mapping (terrain.ts:335-367)
+  - Dynamic chunk repositioning
+  - PERFORMANCE ISSUE: Tileable noise too slow (sin/cos per vertex × 9 chunks)
+  - TEMPORARILY DISABLED: Reverted to single 1000×1000 terrain for Phase 7.6
 
 - [ ] **Deferred to Phase 7.7**
   - Proper chunking requires pre-generated terrain (not runtime generation)
@@ -107,38 +132,40 @@
 
 ---
 
-## Phase 7.7: Advanced Terrain Generation System ✅ COMPLETED
+## Phase 7.7: Advanced Terrain Generation System
 *Complexity: Very High | Impact: Very High*
 
 **Goal**: Create dramatically better terrain (1000x improvement) using pre-generation with complex algorithms
 
-### 7.7.1: Terrain Generator Tool (Separate Project) ✅ COMPLETED
+### 7.7.1: Terrain Generator Tool (Separate Project)
 - [x] **New standalone terrain generation tool**
-  - ✅ Created `tools/terrain-generator/` - TypeScript/Node.js project
-  - ✅ Completely separate from browser runtime (can use expensive algorithms)
-  - ✅ Export high-quality heightmaps and metadata
-  - ✅ Added npm scripts: `npm run generate:terrains` and `npm run generate:terrain`
+  - Created `tools/terrain-generator/` - TypeScript/Node.js project
+  - Completely separate from browser runtime (can use expensive algorithms)
+  - Export high-quality heightmaps and metadata
+  - Added npm scripts: `npm run generate:terrains` and `npm run generate:terrain`
 
 - [x] **Advanced generation algorithms**
-  - ✅ **Multi-octave noise**: FBM, Ridged multifractal, Billow noise, Cellular/Voronoi
-  - ✅ **Domain warping**: Organic terrain distortion for natural patterns
-  - ✅ **Turbulence**: Chaotic noise patterns for varied features
-  - ✅ **Hydraulic erosion simulation**: 50k+ droplet iterations with sediment transport
-  - ✅ **Thermal erosion**: Rock weathering and talus slope enforcement
-  - 🔜 **Tectonic simulation**: Deferred to future phase (not needed for current quality)
-  - 🔜 **Sediment deposition**: Deferred (covered by erosion systems)
-  - 🔜 **Glacial erosion**: Deferred to future phase
+  - Multi-octave noise: FBM, Ridged multifractal, Billow noise, Cellular/Voronoi
+  - Domain warping: Organic terrain distortion for natural patterns
+  - Turbulence: Chaotic noise patterns for varied features
+  - Hydraulic erosion simulation: 50k+ droplet iterations with sediment transport
+  - Thermal erosion: Rock weathering and talus slope enforcement
+  - Tectonic simulation: Deferred to future phase (not needed for current quality)
+  - Sediment deposition: Deferred (covered by erosion systems)
+  - Glacial erosion: Deferred to future phase
 
 - [x] **High-resolution output**
-  - ✅ 2048×2048 heightmaps (4.2M pixels vs previous 65k = 64× improvement)
-  - ✅ 16-bit PNG depth for precise height data (65,535 values vs 256)
-  - ✅ Full normalization to 0-65535 range with original min/max stored in metadata
-  - ✅ Export formats: 16-bit PNG heightmaps + RGB PNG normalmaps + JSON metadata
+  - 1024×1024 heightmaps by default (1.0M pixels; optional 2048×2048 = 4.2M pixels)
+  - 16-bit PNG depth for precise height data (65,535 values vs 256)
+  - Full normalization to 0-65535 range with original min/max stored in metadata
+  - Export formats: 16-bit PNG heightmaps + RGB PNG normalmaps + JSON metadata
 
 - [x] **Additional terrain data**
-  - ✅ Normal maps for enhanced lighting (8-bit RGB PNG)
-  - ✅ Planet-specific configurations (9 planets with unique parameters)
-  - ✅ Generation metadata (resolution, scale, roughness, erosion intensity, timing)
+  - Normal maps for enhanced lighting (8-bit RGB PNG)
+  - Planet-specific configurations (9 planets with unique parameters)
+  - Generation metadata (resolution, scale, roughness, erosion intensity, timing)
+  - Heightmap statistics (min, max, avg heights)
+  - Planet config data (gravity, atmosphere, water, temperature, biomes)
   - ✅ Heightmap statistics (min, max, avg heights)
   - ✅ Planet config data (gravity, atmosphere, water, temperature, biomes)
   - 🔜 **Texture splatmaps**: Deferred to future phase
