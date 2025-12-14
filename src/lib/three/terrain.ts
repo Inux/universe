@@ -277,21 +277,29 @@ export function createTerrainMesh(
     const geometry = new THREE.PlaneGeometry(size, size, resolution - 1, resolution - 1);
     const positions = geometry.attributes.position;
     const colors: number[] = [];
+    const heights: number[] = []; // Store heights for later use
+
+    // Height scaling - make terrain more dramatic
+    const heightScale = 30; // Max height variation in units
 
     // Generate terrain heights and colors
     for (let i = 0; i < positions.count; i++) {
         const x = positions.getX(i);
         const z = positions.getY(i);
 
-        // Scale coordinates for noise
-        const nx = (x / size + 0.5) * 4;
-        const nz = (z / size + 0.5) * 4;
+        // Scale coordinates for noise - use tiling-friendly coordinates
+        const nx = (x / size + 0.5) * 3;
+        const nz = (z / size + 0.5) * 3;
 
-        const height = generator.getHeight(nx, nz) * size;
+        // Get normalized height (0-1) and scale it
+        const normalizedHeight = generator.getHeight(nx, nz) / config.amplitude;
+        const height = normalizedHeight * heightScale;
+
         positions.setZ(i, height);
+        heights.push(height);
 
         // Get color for this height
-        const color = generator.getColor(height / size);
+        const color = generator.getColor(normalizedHeight * config.amplitude);
         colors.push(color.r, color.g, color.b);
     }
 
@@ -300,16 +308,141 @@ export function createTerrainMesh(
 
     const material = new THREE.MeshStandardMaterial({
         vertexColors: true,
-        flatShading: true,
+        flatShading: false, // Smooth shading for better look
         roughness: 0.8,
         metalness: 0.1,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = Math.PI; // Flip 180° to correct orientation
     mesh.receiveShadow = true;
+    mesh.castShadow = true;
+
+    // Store terrain data for height queries
+    mesh.userData.terrainSize = size;
+    mesh.userData.terrainResolution = resolution;
+    mesh.userData.heights = heights;
+    mesh.userData.heightScale = heightScale;
+
+    // Debug: log height range
+    const minH = Math.min(...heights);
+    const maxH = Math.max(...heights);
+    console.log(`Terrain heights: min=${minH.toFixed(2)}, max=${maxH.toFixed(2)}`);
 
     return mesh;
+}
+
+/**
+ * Get terrain height at a given world position
+ * Uses direct geometry lookup for performance (no raycasting)
+ * Terrain is rotated -90° X then 180° Z, centered at origin
+ */
+export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: number): number {
+    const size = terrain.userData.terrainSize as number;
+    const resolution = terrain.userData.terrainResolution as number;
+    const heights = terrain.userData.heights as number[];
+
+    if (!size || !resolution || !heights) {
+        console.error('Terrain data missing');
+        return 0;
+    }
+
+    const halfSize = size / 2;
+
+    // Debug: log input
+    if (Math.random() < 0.001) {
+        console.log(`getTerrainHeight: world(${worldX.toFixed(1)}, ${worldZ.toFixed(1)}), size=${size}`);
+    }
+
+    // The terrain mesh is centered at origin, spanning from -halfSize to +halfSize
+    // Account for 180° Z rotation which flips X axis
+    // Wrap to terrain bounds for infinite terrain effect
+
+    // First, wrap world coordinates to terrain range [-halfSize, halfSize]
+    let localX = worldX;
+    let localZ = worldZ;
+
+    // Wrap X
+    while (localX > halfSize) localX -= size;
+    while (localX < -halfSize) localX += size;
+
+    // Wrap Z
+    while (localZ > halfSize) localZ -= size;
+    while (localZ < -halfSize) localZ += size;
+
+    // Debug: wrapped coords
+    if (Math.random() < 0.001) {
+        console.log(`Wrapped: local(${localX.toFixed(1)}, ${localZ.toFixed(1)})`);
+    }
+
+    // The terrain mesh is rotated:
+    // 1. -90° on X axis: plane goes from XY to XZ plane
+    // 2. 180° on Z axis: flips the orientation
+
+    // To find which geometry vertex corresponds to world position (localX, localZ):
+    // World X corresponds to geometry X (but flipped by 180° rotation)
+    // World Z corresponds to geometry Y (after -90° X rotation)
+
+    // Since the mesh is rotated 180° on Z, X is flipped
+    const geoX = -localX; // Flip X due to 180° Z rotation
+    const geoY = localZ;  // Z becomes Y after -90° X rotation
+
+    // Debug: geometry coords
+    if (Math.random() < 0.001) {
+        console.log(`Geometry: geo(${geoX.toFixed(1)}, ${geoY.toFixed(1)})`);
+    }
+
+    // Convert from geometry coords [-halfSize, halfSize] to normalized [0, 1]
+    const normX = (geoX + halfSize) / size;
+    const normY = (geoY + halfSize) / size;
+
+    // Debug: normalized coords
+    if (Math.random() < 0.001) {
+        console.log(`Normalized: norm(${normX.toFixed(3)}, ${normY.toFixed(3)})`);
+    }
+
+    // Clamp to valid range
+    const clampedNormX = Math.max(0, Math.min(1, normX));
+    const clampedNormY = Math.max(0, Math.min(1, normY));
+
+    // Convert to grid indices
+    const gridX = clampedNormX * (resolution - 1);
+    const gridY = clampedNormY * (resolution - 1);
+
+    // Debug: grid indices
+    if (Math.random() < 0.001) {
+        console.log(`Grid: grid(${gridX.toFixed(1)}, ${gridY.toFixed(1)}), res=${resolution}`);
+    }
+
+    // Get integer indices
+    const x0 = Math.floor(gridX);
+    const y0 = Math.floor(gridY);
+    const x1 = Math.min(x0 + 1, resolution - 1);
+    const y1 = Math.min(y0 + 1, resolution - 1);
+
+    // Get fractional parts for interpolation
+    const fx = gridX - x0;
+    const fy = gridY - y0;
+
+    // Get heights at four corners (row-major order: y * width + x)
+    const h00 = heights[y0 * resolution + x0] ?? 0;
+    const h10 = heights[y0 * resolution + x1] ?? 0;
+    const h01 = heights[y1 * resolution + x0] ?? 0;
+    const h11 = heights[y1 * resolution + x1] ?? 0;
+
+    // Bilinear interpolation
+    const h0 = h00 * (1 - fx) + h10 * fx;
+    const h1 = h01 * (1 - fx) + h11 * fx;
+    const height = h0 * (1 - fy) + h1 * fy;
+
+    // Debug: final height
+    if (Math.random() < 0.001) {
+        console.log(`Heights: h00=${h00.toFixed(2)}, h10=${h10.toFixed(2)}, h01=${h01.toFixed(2)}, h11=${h11.toFixed(2)}`);
+        console.log(`Interpolated: ${height.toFixed(2)}`);
+    }
+
+    return height;
 }
 
 /**
@@ -560,11 +693,13 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
         },
         vertexShader: `
             varying vec3 vWorldPosition;
+            varying vec3 vNormal;
             varying vec2 vUv;
             void main() {
                 vUv = uv;
                 vec4 worldPosition = modelMatrix * vec4(position, 1.0);
                 vWorldPosition = worldPosition.xyz;
+                vNormal = normalize(normalMatrix * normal);
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
             }
         `,
@@ -577,6 +712,7 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
             uniform float offset;
             uniform float exponent;
             varying vec3 vWorldPosition;
+            varying vec3 vNormal;
             varying vec2 vUv;
 
             // Simple star field
@@ -585,18 +721,31 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
             }
 
             void main() {
-                float h = normalize(vWorldPosition + offset).y;
-                vec3 dayColor = mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0));
+                // Use normal direction (which is inverted for BackSide rendering)
+                // For BackSide, positive normal Y means looking down toward ground
+                float h = -vNormal.y;
 
-                // Add stars at night
+                // Sky gradient based on inverted normal Y
+                float skyFactor = max(h, 0.0);
+                vec3 dayColor = mix(bottomColor, topColor, pow(skyFactor, exponent));
+
+                // Add stars at night - only when looking up (inverted h > 0.1)
                 vec3 nightSky = nightColor;
-                float starIntensity = random(vUv * 500.0);
-                if (starIntensity > 0.998) {
-                    nightSky += vec3(starIntensity * 2.0);
+                if (h > 0.0) {
+                    float starIntensity = random(vUv * 100.0);
+                    if (starIntensity > 0.95) {
+                        nightSky += vec3(1.0, 1.0, 1.0) * (starIntensity - 0.95) * 100.0;
+                    }
                 }
 
                 // Mix day and night based on sun position
-                vec3 finalColor = mix(nightSky, dayColor, dayNightMix);
+                vec3 finalColor = mix(nightSky, dayColor, 0.0); // 0.0 = full night
+
+                // Below horizon (inverted h < 0) - dark ground color
+                if (h < 0.0) {
+                    vec3 groundColor = bottomColor * 0.2;
+                    finalColor = mix(groundColor, finalColor, smoothstep(-0.2, 0.0, h));
+                }
 
                 gl_FragColor = vec4(finalColor, 1.0);
             }
@@ -606,6 +755,8 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData.isSkyDome = true;
+    // TEMP: Disable sky dome rendering to test starfield
+    mesh.visible = false;
     return mesh;
 }
 
@@ -613,31 +764,33 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
  * Creates a starfield background for night sky
  */
 export function createStarfield(radius: number = 900): THREE.Points {
-    const starCount = 5000;
+    const starCount = 1000; // Fewer stars for simplicity
     const positions = new Float32Array(starCount * 3);
     const colors = new Float32Array(starCount * 3);
     const sizes = new Float32Array(starCount);
 
     for (let i = 0; i < starCount; i++) {
-        // Random position on sphere
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
+        // Create stars in a dome directly above the camera
+        // Random angle around camera
+        const angle = Math.random() * Math.PI * 2;
+        // Distance from camera (always above)
+        const distance = 50 + Math.random() * 100; // 50-150 units above
+        // Height above camera
+        const height = 10 + Math.random() * 50; // 10-60 units up
 
-        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-        positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-        positions[i * 3 + 2] = radius * Math.cos(phi);
+        // Position relative to camera (will be offset when starfield follows camera)
+        positions[i * 3] = Math.cos(angle) * distance;     // X
+        positions[i * 3 + 1] = height;                     // Y (always positive = above)
+        positions[i * 3 + 2] = Math.sin(angle) * distance; // Z
 
-        // Star color (mostly white, some blue/yellow tints)
-        const colorType = Math.random();
-        if (colorType < 0.7) {
-            colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
-        } else if (colorType < 0.85) {
-            colors[i * 3] = 0.8; colors[i * 3 + 1] = 0.9; colors[i * 3 + 2] = 1;
-        } else {
-            colors[i * 3] = 1; colors[i * 3 + 1] = 0.95; colors[i * 3 + 2] = 0.8;
+        // Debug first few
+        if (i < 3) {
+            console.log(`Star ${i}: (${positions[i * 3].toFixed(1)}, ${positions[i * 3 + 1].toFixed(1)}, ${positions[i * 3 + 2].toFixed(1)})`);
         }
 
-        sizes[i] = Math.random() * 2 + 0.5;
+        // White stars
+        colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
+        sizes[i] = Math.random() * 2 + 1;
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -646,10 +799,10 @@ export function createStarfield(radius: number = 900): THREE.Points {
     geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
     const material = new THREE.PointsMaterial({
-        size: 2,
+        size: 3,
         vertexColors: true,
         transparent: true,
-        opacity: 0.8,
+        opacity: 1.0,
         sizeAttenuation: false,
     });
 

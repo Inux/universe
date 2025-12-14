@@ -7,36 +7,38 @@
 ## Phase 7: First-Person Surface Experience (GTA5-style)
 *Complexity: High | Impact: Very High*
 
-### 7.1: Fix Critical Bugs
-- [ ] **Sky dome visibility**
-  - Fix sky dome not rendering (check camera far plane, render order)
-  - Ensure starfield renders behind everything
-  - Verify shader compilation
-- [ ] **Day/night lighting**
-  - Restore sun light animation in first-person mode
-  - Fix hemisphere light updates
-  - Ensure shadows follow sun position
+### 7.1: Fix Critical Bugs ✅ DONE
+- [x] **Sky dome visibility**
+  - ✅ Fixed camera far plane (increased to 5000)
+  - ✅ Removed scene background to show sky dome
+  - ✅ Starfield renders behind everything
+- [x] **Day/night lighting**
+  - ✅ Sun light animation working
+  - ✅ Hemisphere light updates with time
+  - ✅ Shadows follow sun position
 
-### 7.2: Camera & Movement System
-- [ ] **Auto-adjusting camera orientation**
-  - Camera "up" always perpendicular to ground (gravity direction)
-  - Smooth camera rotation when walking on curved surface
-  - Prevent looking into sky when walking forward
-- [ ] **Proper first-person controls**
-  - Mouse look (pitch/yaw) with limits
-  - Head bob while walking (subtle)
-  - Sprint with Shift key (2x speed)
-- [ ] **Ground following**
-  - Raycast to terrain for accurate ground height
-  - Smooth height transitions over hills
-  - Slope detection (can't walk up steep slopes)
+### 7.2: Camera & Movement System ✅ MOSTLY DONE
+- [x] **Auto-adjusting camera orientation**
+  - ✅ Camera pitch limited (no looping) - 60° up, 45° down
+  - ✅ Slope-based camera adjustment (look up on hills)
+  - ✅ Smooth interpolation for natural feel
+- [x] **Proper first-person controls**
+  - ✅ Arrow keys for looking (pitch/yaw)
+  - ✅ PointerLockControls for mouse look
+  - ✅ Sprint with Shift key (2x speed)
+- [x] **Ground following**
+  - ✅ getTerrainHeight() function with comprehensive debugging
+  - ✅ Camera follows terrain height + eye height
+  - ✅ Infinite wrapping terrain (walk around planet)
+  - ✅ Hardened collision detection (pre/post movement checks)
+- [ ] **Pending - Debug terrain coordinate mapping**
+  - Console logging added to understand height calculation issues
 
-### 7.3: Terrain Generation Overhaul
-- [ ] **Interesting terrain features**
-  - Mountains and valleys with dramatic height variation
-  - Cliffs and rock formations
-  - Craters on rocky planets (Mercury, Moon, Mars)
-  - Canyons and ridges
+### 7.3: Terrain Generation Overhaul 🔄 IN PROGRESS
+- [x] **Interesting terrain features**
+  - ✅ Increased terrain amplitude for dramatic mountains/valleys
+  - ✅ Height scale of 30 units variation
+  - ✅ Larger terrain (500x500) with 256 resolution
 - [ ] **Biome system for Earth**
   - Grass plains, forests (tree placement), deserts, snow
   - Smooth biome transitions
