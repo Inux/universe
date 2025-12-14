@@ -5,6 +5,7 @@ import {
     TerrainGenerator,
     TERRAIN_CONFIGS,
     createTerrainMesh,
+    createTerrainFromPreGenerated,
     createTerrainLOD,
     createSphericalTerrain,
     createSphericalWater,
@@ -194,7 +195,7 @@ export function useSurfaceView(
         return true;
     }
 
-    function loadPlanetSurface(planetName: string) {
+    async function loadPlanetSurface(planetName: string) {
         if (!scene.value) return;
 
         isLoading.value = true;
@@ -259,16 +260,23 @@ export function useSurfaceView(
                 cameraPitch = 0;
             }
         } else {
-            // Create flat terrain - single large terrain for now (chunking without tileable noise)
-            // TODO Phase 7.7: Use pre-generated terrain with proper chunking
-            terrainSize = 1000; // Larger single terrain
-            const baseResolution = 256;
+            // Load pre-generated terrain (Phase 7.7)
+            terrainSize = 1000; // Terrain size
 
-            // Use single terrain mesh for performance (tileable noise is too slow)
-            terrainMesh = createTerrainMesh(planetName, terrainSize, baseResolution, false);
-            terrainMesh.castShadow = true;
-            terrainMesh.receiveShadow = true;
-            scene.value.add(terrainMesh);
+            try {
+                // Load pre-generated high-quality terrain
+                terrainMesh = await createTerrainFromPreGenerated(planetName, terrainSize);
+                terrainMesh.castShadow = true;
+                terrainMesh.receiveShadow = true;
+                scene.value.add(terrainMesh);
+            } catch (error) {
+                console.warn(`Failed to load pre-generated terrain for ${planetName}, falling back to runtime generation:`, error);
+                // Fallback to runtime generation
+                terrainMesh = createTerrainMesh(planetName, terrainSize, 256, false);
+                terrainMesh.castShadow = true;
+                terrainMesh.receiveShadow = true;
+                scene.value.add(terrainMesh);
+            }
 
             // Create water if applicable
             waterMesh = createWaterPlane(terrainSize, config);
@@ -293,14 +301,10 @@ export function useSurfaceView(
             }
         }
 
-        // Fog based on atmosphere (lighter near, thicker far)
+        // Fog based on atmosphere - disabled to prevent visual artifacts
+        // TODO: Implement better fog system without banding artifacts
         if (scene.value) {
-            const fogColor = config.atmosphereColor ? config.atmosphereColor.clone() : new THREE.Color(0x111111);
-            // Fog should extend to horizon but not cover nearby terrain
-            // For flat terrain, extend fog to cover the terrain edges
-            const near = useSphericalTerrain.value ? 50 : 200;
-            const far = useSphericalTerrain.value ? planetRadius * 4 : 2000;
-            scene.value.fog = new THREE.Fog(fogColor, near, far);
+            scene.value.fog = null;
         }
 
         // Mars dust (simple particle field)
@@ -898,7 +902,7 @@ export function useSurfaceView(
         renderer.value.setSize(containerRef.value.clientWidth, containerRef.value.clientHeight);
     }
 
-    function enter(planetName: string) {
+    async function enter(planetName: string) {
         if (isActive.value) return;
 
         isActive.value = true;
@@ -910,7 +914,7 @@ export function useSurfaceView(
             return;
         }
 
-        loadPlanetSurface(planetName);
+        await loadPlanetSurface(planetName);
         animate();
 
         window.addEventListener('keydown', handleKeyDown);
