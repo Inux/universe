@@ -710,6 +710,31 @@ export async function createTerrainFromPreGenerated(
         scaledHeights[i] = normalized * heightScale;
     }
 
+    // Create downsampled color map for minimap (256x256 is sufficient)
+    const minimapRes = 256;
+    const minimapColors = new Uint8Array(minimapRes * minimapRes * 3);
+    for (let mz = 0; mz < minimapRes; mz++) {
+        for (let mx = 0; mx < minimapRes; mx++) {
+            // Map minimap coords to heightmap coords
+            const hx = Math.floor((mx / (minimapRes - 1)) * (width - 1));
+            const hz = Math.floor((mz / (minimapRes - 1)) * (height - 1));
+            const hIdx = hz * width + hx;
+
+            // Get normalized height and generate color
+            // Use same noise coordinates as terrain rendering: ((pos / size) + 0.5) * 3
+            const normalized = (heightmap[hIdx] - metadata.heightmap.min) / heightRange;
+            const scaledHeight = normalized * config.amplitude;
+            const noiseX = (mx / (minimapRes - 1)) * 3;
+            const noiseZ = (mz / (minimapRes - 1)) * 3;
+            const color = generator.getColor(scaledHeight, noiseX, noiseZ);
+
+            const mIdx = (mz * minimapRes + mx) * 3;
+            minimapColors[mIdx] = Math.floor(color.r * 255);
+            minimapColors[mIdx + 1] = Math.floor(color.g * 255);
+            minimapColors[mIdx + 2] = Math.floor(color.b * 255);
+        }
+    }
+
     // Store terrain data - heights are scaled to match rendered mesh
     mesh.userData.terrainSize = size;
     mesh.userData.terrainResolution = width;
@@ -717,6 +742,8 @@ export async function createTerrainFromPreGenerated(
     mesh.userData.heightScale = heightScale;
     mesh.userData.heightMin = 0;
     mesh.userData.heightMax = heightScale;
+    mesh.userData.minimapColors = minimapColors; // RGB colors for minimap
+    mesh.userData.minimapResolution = minimapRes;
 
     return mesh;
 }
