@@ -21,6 +21,9 @@
       Loading Universe...
     </div>
 
+    <!-- Performance HUD (F3 to toggle) -->
+    <PerformanceHUD />
+
     <!-- UI Layer (hidden during surface view) -->
     <div v-show="!surfaceViewActive" class="ui-layer">
       <ControlsHint />
@@ -40,6 +43,7 @@ import ThreeCanvas from './lib/components/ThreeCanvas.vue';
 import ControlsHint from './lib/components/ControlsHint.vue';
 import InfoPanel from './lib/components/InfoPanel.vue';
 import SurfaceView from './lib/components/SurfaceView.vue';
+import PerformanceHUD from './lib/components/PerformanceHUD.vue';
 
 const threeCanvas = ref<InstanceType<typeof ThreeCanvas> | null>(null);
 const selectedPlanet = ref<string | null>(null);
@@ -71,6 +75,9 @@ function handleExplore(planetName: string) {
   infoPanelVisible.value = false;
   surfaceViewActive.value = true;
   shouldEnterSurface.value = true;
+
+  // Pause solar system rendering to save resources
+  threeCanvas.value?.pause();
 }
 
 function handleSurfaceExit() {
@@ -79,6 +86,9 @@ function handleSurfaceExit() {
 
   // Show info panel again when returning from surface
   infoPanelVisible.value = true;
+
+  // Resume solar system rendering
+  threeCanvas.value?.resume();
 
   // Trigger resize to fix renderer after being hidden
   setTimeout(() => {

@@ -140,6 +140,15 @@ export function useSurfaceView(
         renderer.value.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.value.shadowMap.enabled = true;
         renderer.value.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Enable ACES tonemapping and sRGB output for realistic rendering
+        renderer.value.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.value.toneMappingExposure = 1.0;
+        renderer.value.outputColorSpace = THREE.SRGBColorSpace;
+
+        // Expose renderer globally for PerformanceHUD
+        (window as any).__THREE_RENDERER__ = renderer.value;
+
         containerRef.value.appendChild(renderer.value.domElement);
 
         // Pointer lock for cursor hiding and mouse look
@@ -947,11 +956,13 @@ export function useSurfaceView(
             document.exitPointerLock();
         }
 
-        // Cleanup terrain
+        // Cleanup all GPU resources
         if (terrainMesh && scene.value) {
             scene.value.remove(terrainMesh);
             terrainMesh.geometry.dispose();
-            (terrainMesh.material as THREE.Material).dispose();
+            const terrainMat = terrainMesh.material as THREE.MeshStandardMaterial;
+            if (terrainMat.normalMap) terrainMat.normalMap.dispose();
+            terrainMat.dispose();
             terrainMesh = null;
         }
         if (waterMesh && scene.value) {
@@ -965,6 +976,31 @@ export function useSurfaceView(
             skyDome.geometry.dispose();
             (skyDome.material as THREE.Material).dispose();
             skyDome = null;
+        }
+        if (starfield && scene.value) {
+            scene.value.remove(starfield);
+            starfield.geometry.dispose();
+            (starfield.material as THREE.Material).dispose();
+            starfield = null;
+        }
+        if (dustSystem && scene.value) {
+            scene.value.remove(dustSystem);
+            dustSystem.geometry.dispose();
+            (dustSystem.material as THREE.Material).dispose();
+            dustSystem = null;
+        }
+        if (propsGroup && scene.value) {
+            // Dispose all props in the group
+            propsGroup.children.forEach((prop) => {
+                if (prop instanceof THREE.Mesh) {
+                    prop.geometry.dispose();
+                    if (prop.material instanceof THREE.Material) {
+                        prop.material.dispose();
+                    }
+                }
+            });
+            scene.value.remove(propsGroup);
+            propsGroup = null;
         }
 
         renderer.value?.dispose();

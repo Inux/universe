@@ -42,6 +42,7 @@ export function useThreeScene(
     const distanceScaleValue = DISTANCE_SCALE_FACTOR;
     let time = 0;
     let animationId: number | null = null;
+    let isPaused = false;
 
     // Hitbox meshes for easier clicking (invisible, larger spheres)
     const hitboxMeshes = new Map<string, THREE.Mesh>();
@@ -64,10 +65,19 @@ export function useThreeScene(
             1000000
         );
 
-        // Create renderer
+        // Create renderer with proper color management
         renderer.value = new THREE.WebGLRenderer({ antialias: true });
         renderer.value.setSize(containerRef.value.clientWidth, containerRef.value.clientHeight);
         renderer.value.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        // Enable ACES tonemapping and sRGB output for realistic rendering
+        renderer.value.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.value.toneMappingExposure = 1.0;
+        renderer.value.outputColorSpace = THREE.SRGBColorSpace;
+
+        // Expose renderer globally for PerformanceHUD
+        (window as any).__THREE_RENDERER__ = renderer.value;
+
         containerRef.value.appendChild(renderer.value.domElement);
 
         // Lighting
@@ -190,7 +200,7 @@ export function useThreeScene(
     }
 
     function animate() {
-        if (!isInitialized.value) return;
+        if (!isInitialized.value || isPaused) return;
 
         animationId = requestAnimationFrame(animate);
         controls.value?.update();
@@ -290,6 +300,27 @@ export function useThreeScene(
         selectPlanet('sun');
     }
 
+    /**
+     * Pause the animation loop to save resources when not visible
+     */
+    function pause() {
+        isPaused = true;
+        if (animationId !== null) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+        }
+    }
+
+    /**
+     * Resume the animation loop
+     */
+    function resume() {
+        if (isPaused && isInitialized.value) {
+            isPaused = false;
+            animate();
+        }
+    }
+
     function createLabelSprite(text: string): THREE.Sprite {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d')!;
@@ -370,6 +401,8 @@ export function useThreeScene(
         handleClick,
         selectPlanet,
         resetView,
-        setLabelsVisible
+        setLabelsVisible,
+        pause,
+        resume
     };
 }

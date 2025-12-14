@@ -10,44 +10,33 @@
 
 ### 0.1: Pre-generated Terrain Correctness
 - [ ] **Fix 16-bit heightmap loading**
-  - Current canvas decode is effectively 8-bit; need proper 16-bit PNG parsing
-  - Location: `src/terrainLoader.ts` - Canvas ImageData API limitation
-  - Solution: Use `pngjs` or manual PNG chunk parsing for 16-bit grayscale
+  - Current browser Canvas `ImageData` decode is effectively 8-bit; cannot recover true 16-bit from a 16-bit grayscale PNG via `drawImage()`
+  - Touchpoints: `src/lib/three/terrainLoader.ts`, `tools/terrain-generator/src/exporter.ts`
+  - Decide on an encoding/decoder approach:
+    - Export RG-encoded 16-bit height (R=high byte, G=low byte) from the generator and reconstruct in the loader, or
+    - Parse PNG bytes in the browser to read 16-bit grayscale without Canvas
 - [ ] **Store heights as typed arrays**
-  - Avoid `Array.from` on 1M+ samples
-  - Use `Float32Array` for height data throughout
-  - Locations to fix: `terrain.ts`, `terrainLoader.ts`
+  - Ensure `terrainMesh.userData.heights` is always a `Float32Array` (runtime + pre-generated)
+  - Update consumers: `src/lib/three/terrain.ts` (`getTerrainHeight`), `src/lib/components/Minimap.vue`
 - [ ] **Ensure collision/minimap height accuracy**
   - `userData.heights` must match rendered displacement within ±0.25m
   - Test: Compare raycast hit Y vs `getTerrainHeight()` at same XZ
-- [ ] **Use normalmap in terrain material**
-  - Load pre-generated normalmap from `/public/terrains/{planet}/normalmap.png`
-  - Apply to `MeshStandardMaterial` with optional detail normal tiling (4x-8x)
 
 ### 0.2: Surface Performance
-- [ ] **Stop solar system rendering during surface view**
-  - `ThreeCanvas` is `v-show` hidden but still animates/renders
-  - Solution: Set `renderer.setAnimationLoop(null)` or pause scene when hidden
-  - Location: `src/app.ts` or relevant Vue component
 - [ ] **Replace per-frame terrain raycasting**
-  - Use heightmap sampling via `getTerrainHeight(x, z)` for ground collision
-  - Raycasting is O(triangles), heightmap lookup is O(1)
+  - Current: per-frame `Raycaster.intersectObject()` in `src/lib/composables/useSurfaceView.ts`
+  - Target: use `getTerrainHeight(terrainMesh, x, z)` for ground collision and landing height (O(1) lookup)
+  - Acceptance: no raycasts in the main loop; no “fall through terrain” at high sprint speeds
 - [ ] **Decouple heightmap resolution from mesh resolution**
-  - Heightmaps: 1024×1024 (for collision/minimap)
-  - Render mesh: 256–512 segments max (or use shader displacement)
-  - Keep high-res heightmap only for sampling, not geometry
+  - Current: pre-generated path builds a 1024×1024-segment mesh (>2M triangles)
+  - Target: render mesh 256–512 segments max (or shader displacement), but keep 1024×1024 heightmap for collision/minimap
+  - Touchpoint: `src/lib/three/terrain.ts` (`createTerrainFromPreGenerated`)
 - [ ] **Reduce terrain geometry**
   - Target: < 200k triangles
   - Options: shader displacement, LOD system, or lower segment count
 - [ ] **Remove debug logs and expensive spread ops**
-  - Find and remove: `Math.min(...heights)`, `Math.max(...heights)`
-  - Use loop-based min/max for large arrays
-- [ ] **Minimap optimization**
-  - Throttle redraw to 5-10Hz (currently every frame)
-  - Precompute low-res height tiles for faster rendering
-- [ ] **GPU resource disposal on surface exit**
-  - Dispose: starfield, dust particles, props geometries/materials
-  - Location: surface view cleanup function
+  - Remove remaining `console.log` hot-paths and large-array operations
+  - Touchpoint: `src/lib/three/terrain.ts`
 
 ### 0.3: Acceptance Criteria (Phase 0)
 - [ ] Surface view enters in < 2s after assets cached (Earth on typical laptop)
@@ -56,40 +45,22 @@
 - [ ] Memory: no 1M-element JS arrays created on load
 
 ### 0.4: Rendering Realism Quick Wins
-- [ ] **Enable ACES tonemapping + sRGB output**
-  - `renderer.toneMapping = THREE.ACESFilmicToneMapping`
-  - `renderer.outputColorSpace = THREE.SRGBColorSpace`
-  - Apply to both solar system and surface scenes
 - [ ] **Switch planet materials to PBR**
   - Use `MeshStandardMaterial` with roughness/normal maps
-  - Current: likely `MeshBasicMaterial` or `MeshLambertMaterial`
+  - Current: `src/lib/three/solarSystem.ts` uses `MeshPhongMaterial` (planets) and `MeshBasicMaterial` (sun)
 - [ ] **Re-enable star fading at night**
-  - Remove forced `opacity = 1.0` in starfield shader/material
-  - Stars should fade based on sun position
+  - Use computed `starOpacity` in `src/lib/composables/useSurfaceView.ts` (`updateDayNightCycle`)
 - [ ] **Replace fog with atmospheric scattering**
-  - Current fog causes banding artifacts
-  - Implement subtle horizon haze that doesn't hide sun/sky/stars
-  - Consider shader-based atmospheric perspective
+  - Current surface view disables fog (`scene.fog = null`) due to banding artifacts
+  - Implement subtle horizon haze/atmospheric perspective without color banding
 
 ### 0.5: Data/Architecture Unification
 - [ ] **Single source of truth for planet constants**
-  - Consolidate: solar system data, info panel, terrain configs, generator configs
-  - Create `src/planetData.ts` with all planet properties
-- [ ] **Add performance HUD**
-  - Display: FPS, draw calls, triangles
-  - Toggle with keyboard shortcut (e.g., F3)
-  - For regression tracking during development
-
----
-
-## Phase 7.4: Visual Polish (Remaining)
-*Complexity: Medium | Impact: High*
-
-- [ ] **Atmospheric fog rework**
-  - Current fog disabled due to banding artifacts
-  - Implement density-based fog that varies with atmosphere
-  - Must not cause color banding at distance
-  - Consider exponential fog or shader-based solution
+  - Consolidate: `src/lib/three/solarSystem.ts`, `src/lib/data/planetData.ts`, `src/lib/three/terrain.ts`, `tools/terrain-generator/src/planetConfigs.ts`
+  - Goal: one shared planet config model for rendering + info panel + terrain generation
+- [ ] **Performance HUD correctness**
+  - Ensure draw calls / triangles / memory populate (not stuck at 0) in both solar system and surface view
+  - Touchpoints: `src/lib/components/PerformanceHUD.vue`, `src/App.vue`, renderer selection via props or `window.__THREE_RENDERER__`
 
 ---
 
@@ -99,7 +70,7 @@
 - [ ] **Earth terrain from real data**
   - Data sources: SRTM elevation, USGS/NASA heightmaps
   - Target locations: Grand Canyon, Himalayas, Alps
-  - Format: Convert to 16-bit PNG matching current pipeline
+  - Format: Convert to heightmap encoding chosen in Phase 0.1 (true 16-bit preserved end-to-end)
   - Tool: Extend `tools/terrain-generator/` with import capability
 
 - [ ] **Mars/Moon real data**
@@ -200,7 +171,6 @@
 - [ ] **Culling**
   - Frustum culling for terrain chunks
   - Occlusion culling behind hills
-  - Distance-based prop culling (already 150 units)
 - [ ] **GPU optimization**
   - Instanced vegetation rendering
   - Texture atlases for props

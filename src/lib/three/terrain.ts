@@ -586,9 +586,13 @@ export function createTerrainMesh(
     mesh.userData.heights = heights;
     mesh.userData.heightScale = heightScale;
 
-    // Debug: log height range
-    const minH = Math.min(...heights);
-    const maxH = Math.max(...heights);
+    // Debug: log height range (use loop to avoid stack overflow on large arrays)
+    let minH = Infinity;
+    let maxH = -Infinity;
+    for (let i = 0; i < heights.length; i++) {
+        if (heights[i] < minH) minH = heights[i];
+        if (heights[i] > maxH) maxH = heights[i];
+    }
     console.log(`Terrain heights: min=${minH.toFixed(2)}, max=${maxH.toFixed(2)}`);
 
     return mesh;
@@ -599,19 +603,22 @@ export function createTerrainMesh(
  */
 export async function createTerrainFromPreGenerated(
     planetName: string,
-    size: number = 1000
+    size: number = 1000,
+    meshResolution: number = 256 // Mesh segments (256x256 = ~130k triangles)
 ): Promise<THREE.Mesh> {
     console.log(`Loading pre-generated terrain for ${planetName}...`);
 
     // Load terrain data
     const terrainData = await loadPreGeneratedTerrain(planetName);
-    const { heightmap, width, height, metadata } = terrainData;
+    const { heightmap, width, height, metadata, normalmap } = terrainData;
 
-    console.log(`  Resolution: ${width}x${height}`);
+    console.log(`  Heightmap: ${width}x${height}`);
+    console.log(`  Mesh segments: ${meshResolution}x${meshResolution}`);
     console.log(`  Height range: ${metadata.heightmap.min.toFixed(3)} - ${metadata.heightmap.max.toFixed(3)}`);
 
-    // Create geometry
-    const geometry = new THREE.PlaneGeometry(size, size, width - 1, height - 1);
+    // Create geometry with lower resolution for rendering performance
+    // Heightmap stays high-res for collision detection
+    const geometry = new THREE.PlaneGeometry(size, size, meshResolution, meshResolution);
     const positions = geometry.attributes.position;
     const colors: number[] = [];
 
@@ -671,12 +678,28 @@ export async function createTerrainFromPreGenerated(
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geometry.computeVertexNormals();
 
-    const material = new THREE.MeshStandardMaterial({
+    // Create material with optional normalmap
+    const materialOptions: THREE.MeshStandardMaterialParameters = {
         vertexColors: true,
         flatShading: false,
         roughness: 0.8,
         metalness: 0.1,
-    });
+    };
+
+    // Apply normalmap if available for enhanced lighting detail
+    if (normalmap) {
+        const normalmapTexture = new THREE.Texture(normalmap);
+        normalmapTexture.needsUpdate = true;
+        normalmapTexture.wrapS = THREE.RepeatWrapping;
+        normalmapTexture.wrapT = THREE.RepeatWrapping;
+        // Tile the normalmap for detail (4x repetition)
+        normalmapTexture.repeat.set(4, 4);
+        materialOptions.normalMap = normalmapTexture;
+        materialOptions.normalScale = new THREE.Vector2(0.8, 0.8);
+        console.log(`  Applied normalmap with 4x tiling`);
+    }
+
+    const material = new THREE.MeshStandardMaterial(materialOptions);
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
@@ -684,11 +707,13 @@ export async function createTerrainFromPreGenerated(
     mesh.receiveShadow = true;
     mesh.castShadow = true;
 
-    // Store terrain data
+    // Store terrain data - keep as Float32Array for memory efficiency
     mesh.userData.terrainSize = size;
     mesh.userData.terrainResolution = width;
-    mesh.userData.heights = Array.from(heightmap); // Store for collision detection
+    mesh.userData.heights = heightmap; // Keep Float32Array directly
     mesh.userData.heightScale = heightScale;
+    mesh.userData.heightMin = metadata.heightmap.min;
+    mesh.userData.heightMax = metadata.heightmap.max;
 
     console.log(`✓ Terrain loaded for ${planetName}`);
 
