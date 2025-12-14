@@ -7,34 +7,43 @@
 ## 1. Solar System View
 
 ### 1.1 Planet Navigation
-- **Orbit visualization**: All planets displayed in orbital paths around the Sun
-- **Planet selection**: Click on any planet to select and view information
-- **Camera controls**: Zoom, pan, and rotate around the solar system
-- **Planet info panel**: Displays planet name, size, distance from Sun, and other data
+- **Orbital motion**: Planets (and some moons) move in orbits over time
+- **Planet selection**: Click on a planet to select it and open its info panel
+- **Camera controls**: Zoom, pan, and rotate around the solar system view
+- **Planet info panel**: Displays physical/orbital facts and an `Explore Surface` action (not available for the Sun)
+- **Keyboard shortcuts**:
+  - `Enter`: Open info panel (or enter surface view if a non-Sun planet is already selected)
+  - `ArrowLeft` / `ArrowRight`: Cycle planets while the info panel is open
+  - `I`: Toggle planet name labels
+  - `ESC`: Close info panel and reset view
 
 ### 1.2 Supported Celestial Bodies
-- **Planets**: Mercury, Venus, Earth, Mars (+ gas giants if implemented)
+- **Star**: Sun
+- **Planets**: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune
 - **Dwarf planets**: Pluto, Eris, Makemake, Haumea
-- **Moons**: Earth's Moon
+- **Moons**: Moon, Phobos, Deimos, Io, Europa, Ganymede, Callisto, Titan, Rhea, Iapetus, Dione, Titania, Oberon, Umbriel, Ariel, Triton, Nereid, Charon, Dysnomia, Hi'iaka, Namaka
 
 ---
 
 ## 2. Surface Exploration (First-Person View)
 
 ### 2.1 Landing on Planets
-- **Surface entry**: Click/select option to land on a planet's surface
-- **Transition**: Smooth transition from orbital view to surface view
-- **Supported surfaces**: Mercury, Venus, Earth, Mars, Moon, Pluto, Eris, Makemake, Haumea
+- **Surface entry**: Use `Explore Surface` from a planet’s info panel (or press `Enter` when the info panel is open)
+- **Return to orbit**: Press `ESC` or click `← Return to Orbit`
+- **Supported surfaces**: All non-Sun bodies (planets + dwarf planets)
+  - **Pre-generated terrain assets**: Mercury, Venus, Earth, Mars, Moon, Pluto, Eris, Makemake, Haumea
+  - **Procedural fallback terrain**: Bodies without pre-generated assets (e.g., gas giants)
 
 ### 2.2 Movement Controls
 - **WASD**: Move forward, left, backward, right
 - **Mouse**: Look around (first-person camera)
 - **Shift**: Sprint (faster movement)
 - **Space**: Jump
-- **Pointer lock**: Mouse captured for FPS-style controls
+- **Arrow keys**: Look around (keyboard alternative)
+- **Pointer lock**: Click in the 3D view to capture the mouse for FPS-style controls
 
 ### 2.3 Terrain
-- **Pre-generated heightmaps**: 1024×1024 resolution terrain per planet
+- **Pre-generated terrains (where available)**: 1024×1024 heightmaps loaded from `/public/terrains/{planet}/`
 - **Terrain size**: Large explorable area (1000×1000 units)
 - **Height variation**: Mountains, valleys, and varied elevation
 - **Planet-specific terrain**:
@@ -96,7 +105,7 @@
 ### 4.1 Display
 - **Position**: Corner of screen
 - **View radius**: 50 units around player
-- **Real-time**: Updates as player moves
+- **Refresh rate**: Updates ~10 times per second as the player moves
 
 ### 4.2 Features
 - **Terrain heightmap**: Top-down height visualization
@@ -156,8 +165,9 @@
 ## 8. Performance Features
 
 ### 8.1 Terrain Optimization
-- **LOD foundation**: Level-of-detail system infrastructure
 - **Prop culling**: Distance-based prop visibility (150 units)
+- **Solar system pause**: Solar system rendering is paused while in surface view
+- **Minimap throttling**: Minimap rendering is throttled for performance
 - **Pre-generated assets**: Terrain loaded from cached heightmaps
 
 ### 8.2 Asset Loading
@@ -178,9 +188,9 @@
 ## Known Limitations (for test awareness)
 
 - Fog is currently disabled (banding artifacts)
-- Terrain chunking/wrapping disabled (performance)
+- Stars do not fade at night (opacity currently forced)
+- Performance HUD is present (F3) but may show 0 draw calls/triangles due to renderer wiring
 - Single terrain variant per planet
 - No audio currently implemented
-- Stars do not fade at night (forced opacity)
 
 ---
