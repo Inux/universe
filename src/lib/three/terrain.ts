@@ -330,15 +330,31 @@ export class TerrainGenerator {
 
     /**
      * Generate height value using fractal brownian motion (fBm)
+     * Supports tileable noise for seamless terrain wrapping
      */
-    public getHeight(x: number, y: number): number {
+    public getHeight(x: number, y: number, tileable = false, tileSize = 1.0): number {
         let amplitude = 1;
         let frequency = this.config.noiseFrequency;
         let height = 0;
         let maxValue = 0;
 
         for (let i = 0; i < this.config.octaves; i++) {
-            height += amplitude * this.noise2D(x * frequency, y * frequency);
+            let sampleX = x * frequency;
+            let sampleY = y * frequency;
+
+            // Make noise tileable by mapping to a torus
+            if (tileable) {
+                const nx = Math.cos(sampleX * 2 * Math.PI / tileSize) * tileSize / (2 * Math.PI);
+                const ny = Math.sin(sampleX * 2 * Math.PI / tileSize) * tileSize / (2 * Math.PI);
+                const nz = Math.cos(sampleY * 2 * Math.PI / tileSize) * tileSize / (2 * Math.PI);
+                const nw = Math.sin(sampleY * 2 * Math.PI / tileSize) * tileSize / (2 * Math.PI);
+
+                // Use 3D noise to sample the torus
+                height += amplitude * (this.noise3D(nx, ny, nz) + this.noise3D(nz, nw, nx)) / 2;
+            } else {
+                height += amplitude * this.noise2D(sampleX, sampleY);
+            }
+
             maxValue += amplitude;
             amplitude *= this.config.persistence;
             frequency *= this.config.lacunarity;
@@ -498,7 +514,10 @@ export function createTerrainLOD(
 export function createTerrainMesh(
     planetName: string,
     size: number = 100,
-    resolution: number = 128
+    resolution: number = 128,
+    tileable: boolean = true,
+    offsetX: number = 0,
+    offsetZ: number = 0
 ): THREE.Mesh {
     const config = TERRAIN_CONFIGS[planetName] || TERRAIN_CONFIGS.earth;
     const generator = new TerrainGenerator(config, planetName.length * 1000);
@@ -511,17 +530,20 @@ export function createTerrainMesh(
     // Height scaling - make terrain more dramatic
     const heightScale = 30; // Max height variation in units
 
+    // Tile size for seamless wrapping (in noise coordinates)
+    const tileSize = 3.0;
+
     // Generate terrain heights and colors
     for (let i = 0; i < positions.count; i++) {
         const x = positions.getX(i);
         const z = positions.getY(i);
 
-        // Scale coordinates for noise - use tiling-friendly coordinates
-        const nx = (x / size + 0.5) * 3;
-        const nz = (z / size + 0.5) * 3;
+        // Scale coordinates for noise with offset support for chunking
+        const nx = ((x + offsetX) / size + 0.5) * tileSize;
+        const nz = ((z + offsetZ) / size + 0.5) * tileSize;
 
-        // Get base height
-        let baseHeight = generator.getHeight(nx, nz);
+        // Get base height with tileable option
+        let baseHeight = generator.getHeight(nx, nz, tileable, tileSize);
 
         // Apply biome height modifier if biomes are enabled
         if (config.hasBiomes) {
@@ -569,6 +591,93 @@ export function createTerrainMesh(
     console.log(`Terrain heights: min=${minH.toFixed(2)}, max=${maxH.toFixed(2)}`);
 
     return mesh;
+}
+
+/**
+ * Creates a grid of terrain chunks for seamless infinite terrain
+ * Returns a Group containing all chunks positioned in a 3x3 grid
+ */
+export function createTerrainChunkGrid(
+    planetName: string,
+    chunkSize: number = 500,
+    resolution: number = 256,
+    gridSize: number = 3
+): THREE.Group {
+    const group = new THREE.Group();
+    const halfGrid = Math.floor(gridSize / 2);
+
+    // Create chunks in a grid
+    for (let x = -halfGrid; x <= halfGrid; x++) {
+        for (let z = -halfGrid; z <= halfGrid; z++) {
+            const chunk = createTerrainMesh(
+                planetName,
+                chunkSize,
+                resolution,
+                true, // tileable
+                x * chunkSize,
+                z * chunkSize
+            );
+
+            chunk.position.set(x * chunkSize, 0, z * chunkSize);
+            chunk.userData.chunkX = x;
+            chunk.userData.chunkZ = z;
+            chunk.userData.offsetX = x * chunkSize;
+            chunk.userData.offsetZ = z * chunkSize;
+
+            group.add(chunk);
+        }
+    }
+
+    group.userData.chunkSize = chunkSize;
+    group.userData.gridSize = gridSize;
+    group.userData.planetName = planetName;
+    group.userData.resolution = resolution;
+
+    console.log(`Created ${gridSize}x${gridSize} terrain chunk grid, chunk size: ${chunkSize}`);
+
+    return group;
+}
+
+/**
+ * Updates terrain chunk positions for infinite terrain
+ * Repositions chunks as player moves beyond the center chunk
+ */
+export function updateTerrainChunks(
+    chunkGroup: THREE.Group,
+    playerX: number,
+    playerZ: number
+): void {
+    const chunkSize = chunkGroup.userData.chunkSize as number;
+    const gridSize = chunkGroup.userData.gridSize as number;
+    const halfGrid = Math.floor(gridSize / 2);
+
+    // Determine which chunk the player is in
+    const playerChunkX = Math.floor(playerX / chunkSize);
+    const playerChunkZ = Math.floor(playerZ / chunkSize);
+
+    // Update each chunk position to maintain grid around player
+    chunkGroup.children.forEach((child) => {
+        const mesh = child as THREE.Mesh;
+        const currentChunkX = mesh.userData.chunkX as number;
+        const currentChunkZ = mesh.userData.chunkZ as number;
+
+        // Calculate grid offset
+        const offsetX = currentChunkX - halfGrid;
+        const offsetZ = currentChunkZ - halfGrid;
+
+        const newChunkX = playerChunkX + offsetX;
+        const newChunkZ = playerChunkZ + offsetZ;
+
+        // Update position if changed
+        const newPosX = newChunkX * chunkSize;
+        const newPosZ = newChunkZ * chunkSize;
+
+        if (mesh.position.x !== newPosX || mesh.position.z !== newPosZ) {
+            mesh.position.set(newPosX, 0, newPosZ);
+            mesh.userData.chunkX = newChunkX;
+            mesh.userData.chunkZ = newChunkZ;
+        }
+    });
 }
 
 /**
@@ -929,6 +1038,10 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
             offset: { value: 20 },
             exponent: { value: 0.6 },
         },
+        // CRITICAL: Sky dome must render as background, never occlude terrain
+        depthWrite: false, // Don't write to depth buffer
+        depthTest: false,  // Always render (background)
+        side: THREE.BackSide,
         vertexShader: `
             varying vec3 vWorldPosition;
             varying vec3 vNormal;
@@ -953,11 +1066,6 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
             varying vec3 vNormal;
             varying vec2 vUv;
 
-            // Simple star field
-            float random(vec2 st) {
-                return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
-            }
-
             void main() {
                 // Use normal direction (which is inverted for BackSide rendering)
                 // For BackSide, positive normal Y means looking down toward ground
@@ -967,17 +1075,11 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
                 float skyFactor = max(h, 0.0);
                 vec3 dayColor = mix(bottomColor, topColor, pow(skyFactor, exponent));
 
-                // Add stars at night - only when looking up (inverted h > 0.1)
+                // Night sky color (no procedural stars - we have separate starfield mesh)
                 vec3 nightSky = nightColor;
-                if (h > 0.0) {
-                    float starIntensity = random(vUv * 100.0);
-                    if (starIntensity > 0.95) {
-                        nightSky += vec3(1.0, 1.0, 1.0) * (starIntensity - 0.95) * 100.0;
-                    }
-                }
 
-                // Mix day and night based on sun position
-                vec3 finalColor = mix(nightSky, dayColor, 0.0); // 0.0 = full night
+                // Mix day and night based on sun position using dayNightMix uniform
+                vec3 finalColor = mix(nightSky, dayColor, dayNightMix);
 
                 // Below horizon (inverted h < 0) - dark ground color
                 if (h < 0.0) {
@@ -988,7 +1090,6 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
                 gl_FragColor = vec4(finalColor, 1.0);
             }
         `,
-        side: THREE.BackSide,
     });
 
     const mesh = new THREE.Mesh(geometry, material);

@@ -14,6 +14,8 @@ import {
     createStarfield,
     updateSkyDome,
     getTerrainHeight,
+    createTerrainChunkGrid,
+    updateTerrainChunks,
     BiomeType,
     BIOMES,
     type TerrainConfig
@@ -38,6 +40,7 @@ export function useSurfaceView(
 
     let animationId: number | null = null;
     let terrainMesh: THREE.Mesh | null = null;
+    let terrainChunkGroup: THREE.Group | null = null; // For chunked terrain system
     let terrainLOD: THREE.LOD | null = null;
     let waterMesh: THREE.Mesh | null = null;
     let skyDome: THREE.Mesh | null = null;
@@ -54,6 +57,7 @@ export function useSurfaceView(
     // Terrain settings - use flat terrain for GTA-style experience
     const useSphericalTerrain = ref(false);
     const planetRadius = 100; // Radius of the walkable planet sphere (if spherical)
+    let terrainSize = 1000; // Size of flat terrain (updated when terrain is created)
 
     // Player state for surface exploration
     const playerPosition = ref(new THREE.Vector3(0, 5, 0));
@@ -80,6 +84,13 @@ export function useSurfaceView(
     let cameraYaw = 0; // Left/right rotation (radians)
     let cameraPitch = 0; // Up/down rotation (radians)
 
+    // Mouse look sensitivity
+    const mouseSensitivity = 0.002; // radians per pixel
+
+    // Camera smoothing
+    const targetCameraPosition = new THREE.Vector3();
+    const cameraSmoothingFactor = 0.15; // Lower = smoother but more lag, higher = more responsive
+
     // Pre-allocated objects for performance
     const tempVector3 = new THREE.Vector3();
     const tempVector3b = new THREE.Vector3(); // Additional temp vector
@@ -96,6 +107,9 @@ export function useSurfaceView(
 
     // Performance and physics state
     let lastTime = 0;
+
+    // Event handlers (stored for cleanup)
+    let handleMouseMove: ((event: MouseEvent) => void) | null = null;
 
     function initScene() {
         if (!containerRef.value) {
@@ -115,6 +129,11 @@ export function useSurfaceView(
         camera.value = new THREE.PerspectiveCamera(75, width / height, 0.1, 5000);
         camera.value.position.set(0, 2, 0); // Eye height
 
+        // CRITICAL: Set rotation order to YXZ to prevent gimbal lock
+        // YXZ = Yaw (Y) first, then Pitch (X), then Roll (Z)
+        // This ensures yaw always rotates around world Y axis
+        camera.value.rotation.order = 'YXZ';
+
         renderer.value = new THREE.WebGLRenderer({ antialias: true });
         renderer.value.setSize(width, height);
         renderer.value.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -122,10 +141,28 @@ export function useSurfaceView(
         renderer.value.shadowMap.type = THREE.PCFSoftShadowMap;
         containerRef.value.appendChild(renderer.value.domElement);
 
-        // Pointer lock for cursor hiding; camera rotation handled manually
+        // Pointer lock for cursor hiding and mouse look
         renderer.value.domElement.addEventListener('click', () => {
             renderer.value?.domElement.requestPointerLock();
         });
+
+        // Mouse look handler - only active when pointer is locked
+        handleMouseMove = (event: MouseEvent) => {
+            if (document.pointerLockElement === renderer.value?.domElement) {
+                // Update yaw (left/right) - negative because moving right should rotate right
+                cameraYaw -= event.movementX * mouseSensitivity;
+
+                // Update pitch (up/down) - negative because moving up should look up
+                cameraPitch -= event.movementY * mouseSensitivity;
+
+                // Clamp pitch to prevent camera flipping
+                const maxPitch = Math.PI / 2.5; // ~72 degrees
+                const minPitch = -Math.PI / 2.5; // ~-72 degrees
+                cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch));
+            }
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
 
         // Lighting - ambient for base illumination
         const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
@@ -222,12 +259,13 @@ export function useSurfaceView(
                 cameraPitch = 0;
             }
         } else {
-            // Create flat terrain - use LOD for better performance
-            const terrainSize = 500;
+            // Create flat terrain - single large terrain for now (chunking without tileable noise)
+            // TODO Phase 7.7: Use pre-generated terrain with proper chunking
+            terrainSize = 1000; // Larger single terrain
             const baseResolution = 256;
 
-            // Create high-detail center terrain
-            terrainMesh = createTerrainMesh(planetName, terrainSize, baseResolution);
+            // Use single terrain mesh for performance (tileable noise is too slow)
+            terrainMesh = createTerrainMesh(planetName, terrainSize, baseResolution, false);
             terrainMesh.castShadow = true;
             terrainMesh.receiveShadow = true;
             scene.value.add(terrainMesh);
@@ -258,8 +296,10 @@ export function useSurfaceView(
         // Fog based on atmosphere (lighter near, thicker far)
         if (scene.value) {
             const fogColor = config.atmosphereColor ? config.atmosphereColor.clone() : new THREE.Color(0x111111);
-            const near = 50;
-            const far = useSphericalTerrain.value ? planetRadius * 4 : 450;
+            // Fog should extend to horizon but not cover nearby terrain
+            // For flat terrain, extend fog to cover the terrain edges
+            const near = useSphericalTerrain.value ? 50 : 200;
+            const far = useSphericalTerrain.value ? planetRadius * 4 : 2000;
             scene.value.fog = new THREE.Fog(fogColor, near, far);
         }
 
@@ -461,13 +501,16 @@ export function useSurfaceView(
             }
         }
 
-        // Create sky dome with day/night support (larger for spherical)
-        const skyRadius = useSphericalTerrain.value ? planetRadius * 8 : 800;
+        // Create sky dome with day/night support (much larger to cover horizon)
+        // Sky dome should be close to camera far plane (5000) but not too close
+        const skyRadius = useSphericalTerrain.value ? planetRadius * 8 : 3500;
         skyDome = createSkyDome(config, skyRadius);
+        skyDome.renderOrder = -2; // Render first (furthest back)
         scene.value.add(skyDome);
 
-        // Create starfield for night sky
-        starfield = createStarfield(skyRadius * 1.1);
+        // Create starfield for night sky - MUST be smaller than sky dome
+        starfield = createStarfield(skyRadius * 0.7);
+        starfield.renderOrder = -1; // Render after sky dome but before terrain
         scene.value.add(starfield);
 
         // Update hemisphere light colors based on planet
@@ -650,8 +693,6 @@ export function useSurfaceView(
 
         } else {
             // FLAT TERRAIN MOVEMENT WITH INFINITE WRAPPING
-            const terrainSize = 500; // Must match terrain size in loadPlanetSurface
-            const halfSize = terrainSize / 2;
             const eyeHeight = 2; // Player eye height above ground
 
             // Get camera forward direction (reuse temp vector)
@@ -680,7 +721,9 @@ export function useSurfaceView(
                 camera.value.position.add(movement);
             }
 
-            // Wrap position to create infinite terrain (walk around planet)
+            // Wrap position for infinite terrain feel
+            // TODO Phase 7.7: Replace with proper chunk system using pre-generated terrain
+            const halfSize = terrainSize / 2;
             if (camera.value.position.x > halfSize) {
                 camera.value.position.x -= terrainSize;
             } else if (camera.value.position.x < -halfSize) {
@@ -692,45 +735,38 @@ export function useSurfaceView(
                 camera.value.position.z += terrainSize;
             }
 
-            // PROPER FIRST-PERSON CAMERA CONTROLS - Only update when input received
-            const lookSpeed = 1.5; // radians per second
-            // Strict pitch limits - prevent camera from flipping
-            const maxPitch = Math.PI / 3; // 60 degrees
-            const minPitch = -Math.PI / 4; // -45 degrees (look down)
+            // FIRST-PERSON CAMERA CONTROLS
+            // Mouse look is handled in mousemove event (updates cameraYaw/cameraPitch directly)
+            // Keyboard look for when mouse is not available
+            const lookSpeed = 2.0; // radians per second for keyboard
 
-            let rotationChanged = false;
-
-            // Update yaw (left/right rotation around world Y axis)
+            // Keyboard look controls (arrow keys)
             if (moveState.lookLeft) {
                 cameraYaw += lookSpeed * delta;
-                rotationChanged = true;
             }
             if (moveState.lookRight) {
                 cameraYaw -= lookSpeed * delta;
-                rotationChanged = true;
             }
-
-            // Update pitch (up/down looking - NOT rotating)
             if (moveState.lookUp) {
-                cameraPitch = Math.min(maxPitch, cameraPitch + lookSpeed * delta);
-                rotationChanged = true;
+                cameraPitch += lookSpeed * delta;
             }
             if (moveState.lookDown) {
-                cameraPitch = Math.max(minPitch, cameraPitch - lookSpeed * delta);
-                rotationChanged = true;
+                cameraPitch -= lookSpeed * delta;
             }
 
-            // Only update camera rotation if input was received (avoid conflicts with PointerLockControls)
-            if (rotationChanged) {
-                camera.value.rotation.set(cameraPitch, cameraYaw, 0);
-                // Ensure up vector remains consistent
-                camera.value.up.copy(upVector);
-            }
+            // Clamp pitch to prevent camera flipping (same limits as mouse look)
+            const maxPitch = Math.PI / 2.5; // ~72 degrees
+            const minPitch = -Math.PI / 2.5; // ~-72 degrees
+            cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch));
 
-            // Auto-correct any residual roll with gentle damping
-            const rollDamping = 0.85;
+            // Apply rotation with YXZ order (yaw first, then pitch, then roll)
+            // This prevents gimbal lock - yaw always rotates around world Y axis
+            camera.value.rotation.set(cameraPitch, cameraYaw, 0, 'YXZ');
+
+            // Auto-correct any residual roll with damping (should rarely be needed)
+            const rollDamping = 0.9;
             camera.value.rotation.z *= rollDamping;
-            if (Math.abs(camera.value.rotation.z) < 0.0001) {
+            if (Math.abs(camera.value.rotation.z) < 0.001) {
                 camera.value.rotation.z = 0;
             }
 
@@ -776,9 +812,21 @@ export function useSurfaceView(
             }
             const targetY = groundHeight + eyeHeight;
 
-            // Ground collision - snap to terrain if below it
+            // Ground collision with smooth landing
             if (camera.value.position.y < targetY) {
-                camera.value.position.y = targetY;
+                // Smooth landing interpolation when hitting ground
+                const landingSpeed = 0.3; // Higher = faster landing snap
+                camera.value.position.y = THREE.MathUtils.lerp(
+                    camera.value.position.y,
+                    targetY,
+                    landingSpeed
+                );
+
+                // Snap if very close to avoid float precision issues
+                if (Math.abs(camera.value.position.y - targetY) < 0.01) {
+                    camera.value.position.y = targetY;
+                }
+
                 playerVelocity.y = 0;
                 isGrounded = true;
             } else if (camera.value.position.y > targetY + 0.5) {
@@ -885,7 +933,17 @@ export function useSurfaceView(
         window.removeEventListener('keyup', handleKeyUp);
         window.removeEventListener('resize', handleResize);
 
-        // Cleanup
+        if (handleMouseMove) {
+            document.removeEventListener('mousemove', handleMouseMove);
+            handleMouseMove = null;
+        }
+
+        // Exit pointer lock if active
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+
+        // Cleanup terrain
         if (terrainMesh && scene.value) {
             scene.value.remove(terrainMesh);
             terrainMesh.geometry.dispose();
