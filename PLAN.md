@@ -1,6 +1,7 @@
 # Implementation Plan
 
-* For all tasks keep the README.md, docs.md and PLAN.md updated accordingly
+* For all tasks keep the README.md, docs.md, features.md and PLAN.md updated accordingly
+* Application is running in the browser at http://localhost:5173 (use playwright MCP if needed)
 
 ---
 
@@ -14,16 +15,27 @@
   - [ ] Use normalmap in terrain material (lighting realism) and add optional detail normal tiling
 
 - [ ] **Surface performance**
+  - [ ] Stop rendering the solar system while in surface view (currently `ThreeCanvas` is `v-show` hidden but still animates/renders)
   - [ ] Replace per-frame terrain raycasting with heightmap sampling (`getTerrainHeight`) for ground collision
+  - [ ] Decouple heightmap resolution from mesh resolution
+    - [ ] Pre-generated heightmaps may be 1024×1024+, but render mesh should be ~256–512 segments (or shader displacement)
+    - [ ] Keep high-res heightmap only for collision/minimap sampling
   - [ ] Reduce terrain render geometry (shader displacement / LOD) to keep triangles < ~200k
   - [ ] Remove debug logs and expensive spread ops (e.g. `Math.min(...heights)`)
   - [ ] Minimap: throttle redraw (5-10Hz) and precompute low-res height tiles
+  - [ ] Ensure all GPU resources are disposed on surface exit (starfield, dust, props geometries/materials)
+
+ - [ ] **Acceptance criteria (Phase 0)**
+   - [ ] Surface view enters in < 2s after assets cached (Earth on a typical laptop)
+   - [ ] Average FPS ≥ 60 while walking (no hitches when turning)
+   - [ ] Collision height, prop placement, and minimap all agree within ±0.25m of rendered terrain
+   - [ ] Memory: no 1M-element JS arrays created on load (use typed arrays + avoid `Array.from`)
 
 - [ ] **Rendering realism quick wins**
   - [ ] Enable ACES tonemapping + sRGB output + physically correct lights (both scenes)
   - [ ] Switch planet materials to PBR (`MeshStandardMaterial`) with roughness/normal maps where available
   - [ ] Re-enable star fading at night (remove forced `opacity = 1.0`)
-  - [ ] Remove fog completely as the users want to see the sky & sun and at night the stars
+  - [ ] Replace current fog approach with subtle atmospheric scattering / horizon haze (must not hide sun/sky/stars)
 
 - [ ] **Data/architecture unification**
   - [ ] Single source of truth for planet constants (solar system, info panel, terrain configs, generator configs)
@@ -110,11 +122,10 @@
   - Increased sky dome radius from 800 to 3500 units
   - Fixed render order: sky dome (-2), starfield (-1), terrain (0)
   - Starfield now smaller than sky dome (0.7x instead of 1.1x)
-  - Fog distance extended from 450 to 2000 units for horizon blending
+  - Fog was extended for horizon blending, but is currently disabled due to banding artifacts (see Phase 0)
 
 - [x] **Horizon improvements**
-  - Distance fog properly blends with sky at horizon
-  - Fog near distance adjusted to 200 units (doesn't cover nearby terrain)
+  - Horizon blending relies on sky dome gradient (fog currently disabled)
   - Proper depth sorting ensures correct rendering
 
 ### 7.6.3: Seamless Terrain Wrapping
