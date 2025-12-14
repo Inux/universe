@@ -13,10 +13,22 @@
       <div class="surface-hud">
         <div class="planet-name">{{ displayPlanet?.toUpperCase() }}</div>
         <div class="gravity-info">Gravity: {{ gravityDisplay }} m/s²</div>
+        <div class="hud-row">
+          <span class="hud-label">Heading</span>
+          <span class="hud-value">{{ headingDisplay }}</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-label">Coords</span>
+          <span class="hud-value mono">{{ coordsDisplay }}</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-label">Time</span>
+          <span class="hud-value">{{ timeDisplay }}</span>
+        </div>
       </div>
 
       <!-- Controls hint -->
-      <div class="controls-hint">
+      <div class="controls-hint" v-if="showControlsHint">
         <div class="hint-row"><span class="key">W A S D</span> Move</div>
         <div class="hint-row"><span class="key">SPACE</span> Jump</div>
         <div class="hint-row"><span class="key">MOUSE</span> Look around</div>
@@ -49,7 +61,16 @@ const canvasContainer = ref<HTMLElement | null>(null);
 const showView = ref(false);
 const displayPlanet = ref<string | null>(null);
 
-const { isActive, isLoading, currentPlanet, enter, exit } = useSurfaceView(canvasContainer, {
+const {
+  isActive,
+  isLoading,
+  currentPlanet,
+  playerPosition,
+  headingDeg,
+  timeOfDay,
+  enter,
+  exit,
+} = useSurfaceView(canvasContainer, {
   onExit: () => {
     showView.value = false;
     displayPlanet.value = null;
@@ -63,6 +84,22 @@ const gravityDisplay = computed(() => {
   const config = TERRAIN_CONFIGS[planet];
   return config?.gravity.toFixed(2) || '9.81';
 });
+
+const headingDisplay = computed(() => `${Math.round(headingDeg.value)}°`);
+const coordsDisplay = computed(() => {
+  const pos = playerPosition.value;
+  return `X ${pos.x.toFixed(1)}  Z ${pos.z.toFixed(1)}  Y ${pos.y.toFixed(1)}`;
+});
+const timeDisplay = computed(() => {
+  const hoursFloat = (timeOfDay.value || 0) * 24;
+  const h = Math.floor(hoursFloat) % 24;
+  const m = Math.floor((hoursFloat - h) * 60);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${pad(h)}:${pad(m)}`;
+});
+
+const showControlsHint = ref(true);
+let hideHintTimer: number | undefined;
 
 function handleExit() {
   exit();
@@ -86,6 +123,15 @@ watch(
           enter(props.planet);
         }
       }, 50);
+
+      // Reset and schedule controls hint fade-out
+      showControlsHint.value = true;
+      if (hideHintTimer) {
+        clearTimeout(hideHintTimer);
+      }
+      hideHintTimer = window.setTimeout(() => {
+        showControlsHint.value = false;
+      }, 5000);
     }
   }
 );
