@@ -64,8 +64,113 @@
 
 ---
 
-## Phase 8: Audio Experience
+## Phase 7.6: Critical Surface View Fixes ✅ COMPLETED
+*Complexity: Medium | Impact: Very High*
+
+### 7.6.1: Camera System Overhaul ✅ COMPLETED
+- [x] **Fix camera rotation issues**
+  - ✅ Fixed Euler angle gimbal lock by setting rotation order to 'YXZ'
+  - ✅ Yaw rotation now always rotates around world Y axis (no more weird tilting)
+  - ✅ Proper pitch clamping to prevent camera flipping (±72 degrees)
+  - ✅ Roll auto-correction with damping
+
+- [x] **Enhanced camera controls**
+  - ✅ Implemented proper mouse look with mousemove events
+  - ✅ Pointer lock integration for FPS-style camera
+  - ✅ Added camera smoothing for landing (smooth vertical interpolation)
+  - ✅ Proper event cleanup on exit
+
+### 7.6.2: Terrain Edge Visual Fixes ✅ COMPLETED
+- [x] **Fix star density at terrain edges**
+  - ✅ Increased sky dome radius from 800 to 3500 units
+  - ✅ Fixed render order: sky dome (-2), starfield (-1), terrain (0)
+  - ✅ Starfield now smaller than sky dome (0.7x instead of 1.1x)
+  - ✅ Fog distance extended from 450 to 2000 units for horizon blending
+
+- [x] **Horizon improvements**
+  - ✅ Distance fog properly blends with sky at horizon
+  - ✅ Fog near distance adjusted to 200 units (doesn't cover nearby terrain)
+  - ✅ Proper depth sorting ensures correct rendering
+
+### 7.6.3: Seamless Terrain Wrapping ⚠️ PARTIALLY REVERTED
+- [x] **Terrain chunking implementation**
+  - ✅ Implemented 3x3 chunk grid system (terrain.ts:600-685)
+  - ✅ Tileable noise using torus mapping (terrain.ts:335-367)
+  - ✅ Dynamic chunk repositioning
+  - ⚠️ **PERFORMANCE ISSUE**: Tileable noise too slow (sin/cos per vertex × 9 chunks)
+  - ⚠️ **TEMPORARILY DISABLED**: Reverted to single 1000×1000 terrain for Phase 7.6
+
+- [ ] **Deferred to Phase 7.7**
+  - Proper chunking requires pre-generated terrain (not runtime generation)
+  - Will implement with advanced terrain generation tool
+  - Tileable noise feasible offline, not in browser
+
+---
+
+## Phase 7.7: Advanced Terrain Generation System
+*Complexity: Very High | Impact: Very High*
+
+**Goal**: Create dramatically better terrain (1000x improvement) using pre-generation with complex algorithms
+
+### 7.7.1: Terrain Generator Tool (Separate Project)
+- [ ] **New standalone terrain generation tool**
+  - Separate Node.js/TypeScript project for offline terrain generation (or any other language which is suitable)
+  - Not browser-based (can use complex algorithms without performance concerns)
+  - Export high-quality heightmaps and associated data
+
+- [ ] **Advanced generation algorithms**
+  - **Multi-octave noise**: Ridged multifractal, Billow noise, Voronoi cells
+  - **Hydraulic erosion simulation**: Realistic water flow and sediment transport
+  - **Thermal erosion**: Rock weathering and talus slopes
+  - **Tectonic simulation**: Fault lines, mountain ranges, continental drift
+  - **Sediment deposition**: River deltas, alluvial fans
+  - **Glacial erosion**: U-shaped valleys, cirques, moraines
+
+- [ ] **High-resolution output**
+  - 2048x2048 or 4096x4096 heightmaps (vs current 256x256)
+  - 16-bit or 32-bit depth for precise height data
+  - Export formats: PNG heightmaps, JSON metadata, binary formats
+
+- [ ] **Additional terrain data**
+  - Normal maps for enhanced lighting
+  - Texture splatmaps for biome blending
+  - Moisture maps, temperature maps
+  - Flow maps for water/wind direction
+  - Prop placement data (trees, rocks, etc.)
+
+### 7.7.2: Integration with Main Application
+- [ ] **Terrain asset loading**
+  - Load pre-generated heightmaps at runtime
+  - Efficient texture streaming for large terrains
+  - Progressive loading (LOD) for better performance
+
+- [ ] **Planet-specific terrain sets**
+  - Each planet has pre-generated terrain variants
+  - Multiple terrain tiles per planet for variety
+  - Seed-based selection for consistency
+
+- [ ] **Terrain caching**
+  - Cache loaded terrain data
+  - Lazy loading for planets not yet visited
+  - Memory management for multiple planet terrains
+
+### 7.7.3: Real-World Data Integration (Optional)
+- [ ] **Earth terrain from real data**
+  - SRTM elevation data
+  - USGS/NASA heightmaps
+  - Specific real-world locations (Grand Canyon, Himalayas, etc.)
+
+- [ ] **Other planets/moons**
+  - Mars: NASA HiRISE data
+  - Moon: LRO elevation data
+  - Procedural generation for planets without data
+
+---
+
+## Phase 8: Audio Experience (Deferred)
 *Complexity: Low | Impact: Medium*
+
+**Note**: Audio is lower priority than terrain quality and camera fixes
 
 - [ ] **Sound effects**
   - UI feedback sounds (clicks, transitions)
