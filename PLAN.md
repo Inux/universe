@@ -11,16 +11,16 @@
 **Goal**: Transform terrain from "technically good" to "incredibly fun and realistic". Pack as much as possible into pre-generated terrains to keep performance high.
 
 ### 7.8.1: Water Systems
-- [ ] **River generation**
+- [x] **River generation**
   - Extend `tools/terrain-generator/` with watershed analysis
   - Increase sizes of Terrains to 2048x2048
   - Carve river valleys using flow accumulation algorithm
   - Output: river path data in terrain metadata JSON
-  - Runtime: render water plane along river paths
-- [ ] **Lakes and oceans**
+  - Runtime: render water plane along river paths (pending)
+- [x] **Lakes and oceans**
   - Fill terrain depressions below water level threshold
   - Coastline detection for beach biome placement
-  - Water plane with animated shader (waves, reflections)
+  - Water plane with animated shader (waves, reflections) (pending runtime implementation)
 
 ### 7.8.2: Geological Features
 - [ ] **Volcanic terrain** (Mars, Venus, Moon)

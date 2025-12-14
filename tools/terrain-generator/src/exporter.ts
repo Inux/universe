@@ -136,6 +136,43 @@ export class TerrainExporter {
         result: GenerationResult,
         config: PlanetConfig
     ): Promise<void> {
+        // Prepare water data for JSON (simplify river paths for smaller file size)
+        let waterData = null;
+        if (result.waterData) {
+            waterData = {
+                seaLevel: result.waterData.seaLevel,
+                rivers: result.waterData.rivers.map(river => ({
+                    id: river.id,
+                    sourceX: river.sourceX,
+                    sourceY: river.sourceY,
+                    mouthX: river.mouthX,
+                    mouthY: river.mouthY,
+                    totalLength: river.totalLength,
+                    maxFlow: river.maxFlow,
+                    // Simplify points: only keep every Nth point for runtime rendering
+                    points: river.points.filter((_, i) => i % 4 === 0 || i === river.points.length - 1).map(p => ({
+                        x: p.x,
+                        y: p.y,
+                        width: Math.round(p.width * 10) / 10,
+                    })),
+                })),
+                waterBodies: result.waterData.waterBodies.map(body => ({
+                    id: body.id,
+                    type: body.type,
+                    waterLevel: body.waterLevel,
+                    area: body.area,
+                    bounds: {
+                        minX: body.minX,
+                        minY: body.minY,
+                        maxX: body.maxX,
+                        maxY: body.maxY,
+                    },
+                    // Simplify coastline: only keep every Nth point
+                    coastlinePoints: body.coastlinePoints.filter((_, i) => i % 8 === 0),
+                })),
+            };
+        }
+
         const metadata = {
             planet: config.name,
             type: config.type,
@@ -160,6 +197,7 @@ export class TerrainExporter {
                 temperature: config.temperature,
                 hasBiomes: config.hasBiomes,
             },
+            water: waterData,
             files: {
                 heightmap: 'heightmap.png',
                 normalmap: result.normalmap ? 'normalmap.png' : null,

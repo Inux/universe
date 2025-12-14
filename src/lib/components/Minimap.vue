@@ -101,10 +101,22 @@ function drawMinimap() {
         while (localZ < -halfSize) localZ += terrainSize;
 
         // Convert to grid indices
-        const normX = ((-localX + halfSize) / terrainSize); // Flip X
-        const normZ = ((localZ + halfSize) / terrainSize);
-        const gridX = Math.floor(normX * (terrainRes - 1));
-        const gridZ = Math.floor(normZ * (terrainRes - 1));
+        // Match the coordinate transformation from getTerrainHeight in terrain.ts:
+        // The terrain mesh is rotated -90° X then 180° Z
+        // World X corresponds to geometry X (but flipped by 180° rotation)
+        // World Z corresponds to geometry Y (after -90° X rotation)
+        const geoX = -localX; // Flip X due to 180° Z rotation
+        const geoY = localZ;  // Z becomes Y after -90° X rotation
+
+        const normX = (geoX + halfSize) / terrainSize;
+        const normZ = (geoY + halfSize) / terrainSize;
+
+        // Clamp to valid range
+        const clampedNormX = Math.max(0, Math.min(1, normX));
+        const clampedNormZ = Math.max(0, Math.min(1, normZ));
+
+        const gridX = Math.floor(clampedNormX * (terrainRes - 1));
+        const gridZ = Math.floor(clampedNormZ * (terrainRes - 1));
         const idx = gridZ * terrainRes + gridX;
 
         if (idx >= 0 && idx < heights.length) {

@@ -1,6 +1,7 @@
 import { NoiseGenerator } from './noise.js';
 import { HydraulicErosion, ThermalErosion } from './erosion.js';
-import type { PlanetConfig, HeightmapData, GenerationResult } from './types.js';
+import { WaterSystemGenerator } from './water.js';
+import type { PlanetConfig, HeightmapData, GenerationResult, WaterSystemData } from './types.js';
 
 /**
  * Main terrain generator class
@@ -59,18 +60,41 @@ export class TerrainGenerator {
             erodedHeightmap = thermal.erode(thermalIterations);
         }
 
-        // Step 3: Generate normal map
-        const normalmap = this.generateNormalMap(erodedHeightmap);
+        // Step 3: Generate water systems (for planets with water)
+        let waterData: WaterSystemData | undefined;
+        let finalHeightmap = erodedHeightmap;
 
-        // Step 4: Calculate metadata
-        const metadata = this.calculateMetadata(erodedHeightmap, startTime);
+        if (this.config.hasWater) {
+            const waterGenerator = new WaterSystemGenerator(erodedHeightmap, {
+                riverThreshold: 300, // Lower threshold for more rivers
+                seaLevel: 0.25, // 25% of terrain is below sea level
+                minRiverLength: 30,
+                valleyCarveDepth: 0.015,
+                valleyCarveWidth: 6,
+            });
+
+            const waterResult = waterGenerator.generate();
+            finalHeightmap = waterResult.heightmap;
+            waterData = {
+                rivers: waterResult.waterData.rivers,
+                waterBodies: waterResult.waterData.waterBodies,
+                seaLevel: waterResult.waterData.seaLevel,
+            };
+        }
+
+        // Step 4: Generate normal map
+        const normalmap = this.generateNormalMap(finalHeightmap);
+
+        // Step 5: Calculate metadata
+        const metadata = this.calculateMetadata(finalHeightmap, startTime);
 
         console.log(`✓ Generation complete in ${metadata.generationTime.toFixed(2)}s`);
         console.log(`  Height range: ${metadata.minHeight.toFixed(3)} - ${metadata.maxHeight.toFixed(3)}`);
 
         return {
-            heightmap: erodedHeightmap,
+            heightmap: finalHeightmap,
             normalmap,
+            waterData,
             metadata,
         };
     }
@@ -79,7 +103,7 @@ export class TerrainGenerator {
      * Generate base heightmap using noise
      */
     private generateBaseHeightmap(): HeightmapData {
-        console.log('  Step 1/4: Generating base heightmap...');
+        console.log('  Step 1/5: Generating base heightmap...');
 
         const data = new Float32Array(this.resolution * this.resolution);
         const scale = 0.003; // Noise frequency
@@ -145,7 +169,7 @@ export class TerrainGenerator {
      * Generate normal map from heightmap
      */
     private generateNormalMap(heightmap: HeightmapData): HeightmapData {
-        console.log('  Step 2/4: Generating normal map...');
+        console.log('  Step 4/5: Generating normal map...');
 
         const data = new Float32Array(this.resolution * this.resolution * 3);
         const strength = 8.0; // Normal map strength
@@ -190,7 +214,7 @@ export class TerrainGenerator {
      * Calculate terrain metadata
      */
     private calculateMetadata(heightmap: HeightmapData, startTime: number): GenerationResult['metadata'] {
-        console.log('  Step 4/4: Calculating metadata...');
+        console.log('  Step 5/5: Calculating metadata...');
 
         let min = Infinity;
         let max = -Infinity;

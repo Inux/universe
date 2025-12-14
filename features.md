@@ -43,7 +43,7 @@
 - **Pointer lock**: Click in the 3D view to capture the mouse for FPS-style controls
 
 ### 2.3 Terrain
-- **Pre-generated terrains (where available)**: 1024×1024 heightmaps loaded from `/public/terrains/{planet}/`
+- **Pre-generated terrains (where available)**: 2048×2048 heightmaps loaded from `/public/terrains/{planet}/`
 - **Terrain size**: Large explorable area (1000×1000 units)
 - **Height variation**: Mountains, valleys, and varied elevation
 - **Planet-specific terrain**:
@@ -52,6 +52,14 @@
   - Earth: Heavy erosion with realistic features
   - Mars: Ancient erosion patterns
   - Dwarf planets: Icy terrain with ridged features
+
+### 2.3.1 Water Systems (Earth, Pluto, etc.)
+- **Rivers**: Generated using watershed analysis and flow accumulation
+- **River valleys**: V-shaped valleys carved into terrain along river paths
+- **Lakes**: Detected as connected depressions below sea level
+- **Oceans**: Large water bodies touching terrain edges
+- **Coastlines**: Detected for beach biome placement
+- **Water data**: Exported in terrain metadata for runtime rendering
 
 ### 2.4 Biome System (Earth)
 - **Biome types**: Plains, Forest, Desert, Tundra, Mountain, Beach, Ocean

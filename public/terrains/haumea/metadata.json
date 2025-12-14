@@ -2,16 +2,16 @@
   "planet": "haumea",
   "type": "dwarf",
   "generation": {
-    "resolution": 1024,
+    "resolution": 2048,
     "terrainScale": 0.3,
     "roughness": 0.2,
     "erosionIntensity": 0,
-    "generationTime": 1.407
+    "generationTime": 8.993
   },
   "heightmap": {
-    "min": 0.025036629289388657,
-    "max": 0.24388062953948975,
-    "avg": 0.14291783919730072
+    "min": 0.05000433698296547,
+    "max": 0.2530880272388458,
+    "avg": 0.14864778969494985
   },
   "config": {
     "gravity": 0.44,
@@ -19,6 +19,81 @@
     "hasWater": true,
     "temperature": 32,
     "hasBiomes": false
+  },
+  "water": {
+    "seaLevel": 0.25,
+    "rivers": [],
+    "waterBodies": [
+      {
+        "id": 0,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 1058821,
+        "bounds": {
+          "minX": 0,
+          "minY": 0,
+          "maxX": 1024,
+          "maxY": 1024
+        },
+        "coastlinePoints": []
+      },
+      {
+        "id": 1,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 1054466,
+        "bounds": {
+          "minX": 1024,
+          "minY": 0,
+          "maxX": 2047,
+          "maxY": 1026
+        },
+        "coastlinePoints": []
+      },
+      {
+        "id": 2,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 1054464,
+        "bounds": {
+          "minX": 0,
+          "minY": 1025,
+          "maxX": 1026,
+          "maxY": 2047
+        },
+        "coastlinePoints": [
+          {
+            "x": 310,
+            "y": 1527
+          },
+          {
+            "x": 315,
+            "y": 1528
+          },
+          {
+            "x": 308,
+            "y": 1531
+          },
+          {
+            "x": 317,
+            "y": 1532
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 1042907,
+        "bounds": {
+          "minX": 1026,
+          "minY": 1026,
+          "maxX": 2047,
+          "maxY": 2047
+        },
+        "coastlinePoints": []
+      }
+    ]
   },
   "files": {
     "heightmap": "heightmap.png",

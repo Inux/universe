@@ -7,6 +7,7 @@ Advanced procedural terrain generation tool for the Universe Browser Game.
 - **Multi-octave noise generation**: FBM, ridged multifractal, billow, cellular, domain warping
 - **Hydraulic erosion simulation**: Realistic water flow and sediment transport (50,000+ iterations)
 - **Thermal erosion**: Rock weathering and talus slopes
+- **Water systems**: Rivers, lakes, and oceans with watershed analysis
 - **High-resolution output**: 2048x2048 16-bit heightmaps + RGB normal maps
 - **Planet-specific generation**: Customized terrain for each celestial body
 
@@ -35,9 +36,41 @@ npm run generate:terrain -- earth
 
 Terrain files are saved to `public/terrains/[planet-name]/`:
 
-- `heightmap.png` - 16-bit grayscale PNG (65,536 height levels)
+- `heightmap.png` - RG-encoded 16-bit PNG (65,536 height levels)
 - `normalmap.png` - RGB normal map for lighting
-- `metadata.json` - Generation parameters and statistics
+- `metadata.json` - Generation parameters, statistics, and water system data
+
+### Water Data in Metadata
+
+For planets with water (Earth, Pluto, etc.), `metadata.json` includes:
+
+```json
+{
+  "water": {
+    "seaLevel": 0.25,
+    "rivers": [
+      {
+        "id": 0,
+        "sourceX": 512, "sourceY": 128,
+        "mouthX": 1024, "mouthY": 1800,
+        "totalLength": 1500,
+        "maxFlow": 25000,
+        "points": [{"x": 512, "y": 128, "width": 2.5}, ...]
+      }
+    ],
+    "waterBodies": [
+      {
+        "id": 0,
+        "type": "lake",
+        "waterLevel": 0.25,
+        "area": 50000,
+        "bounds": {"minX": 100, "minY": 200, "maxX": 400, "maxY": 500},
+        "coastlinePoints": [{"x": 100, "y": 200}, ...]
+      }
+    ]
+  }
+}
+```
 
 ## Configuration
 
@@ -71,6 +104,16 @@ Planet configurations are in `src/planetConfigs.ts`. Each planet has:
   - Material transfer to neighbors
   - Smoothing of steep cliffs
 
+### Water Systems
+
+- **Watershed analysis**: D8 flow direction algorithm
+- **Flow accumulation**: Calculates water flow at each cell
+- **River extraction**: Identifies river paths above flow threshold
+- **Valley carving**: Carves V-shaped valleys along river paths
+- **Depression filling**: Priority-flood algorithm for proper drainage
+- **Lake detection**: Flood-fill for connected water bodies below sea level
+- **Coastline detection**: Identifies land-water boundaries for beach placement
+
 ## Performance
 
 - 2048x2048 terrain: ~30-60 seconds per planet
@@ -102,3 +145,5 @@ Planet configurations are in `src/planetConfigs.ts`. Each planet has:
 - Vegetation/prop placement data
 - Real-world heightmap integration (SRTM, etc.)
 - GPU acceleration for faster generation
+- Runtime water rendering (animated shaders, reflections)
+- Wind erosion for Mars/Venus

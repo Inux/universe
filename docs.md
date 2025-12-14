@@ -161,6 +161,22 @@ Surface view prefers pre-generated terrains generated offline and shipped as sta
 2. Runtime loads them via `terrainLoader.ts` (`loadPreGeneratedTerrain`) and builds a displaced `PlaneGeometry` via `terrain.ts` (`createTerrainFromPreGenerated`).
 3. The terrain mesh stores size/resolution/heights in `mesh.userData` for collision + minimap (`getTerrainHeight`, `Minimap.vue`).
 
+### Water Systems (7.8.1)
+
+For planets with water (Earth, Pluto, etc.), the terrain generator includes:
+
+1. **Watershed Analysis**: D8 flow direction algorithm determines water flow paths
+2. **Flow Accumulation**: Calculates total upstream drainage area for each cell
+3. **River Extraction**: Cells above flow threshold form river paths
+4. **Valley Carving**: V-shaped valleys carved along river paths
+5. **Lake/Ocean Detection**: Flood-fill identifies water bodies below sea level
+6. **Coastline Detection**: Land-water boundaries marked for beach biome placement
+
+Water data is exported in `metadata.json`:
+- `water.seaLevel`: Fraction of terrain below water (default 0.25)
+- `water.rivers[]`: River paths with source, mouth, length, and simplified point arrays
+- `water.waterBodies[]`: Lakes/oceans with bounds and coastline points
+
 ### Heightmap Encoding (16-bit via RG channels)
 
 Browser Canvas API only supports 8-bit per channel, so true 16-bit grayscale PNG cannot be decoded. The terrain generator encodes 16-bit height values as:
@@ -174,10 +190,11 @@ This provides full 65536-level precision using standard 8-bit RGB PNG that brows
 
 All terrain meshes store height data in `mesh.userData`:
 - `terrainSize`: World size of terrain (e.g., 1000 units)
-- `terrainResolution`: Grid resolution (e.g., 1024 for pre-generated, 256 for procedural)
+- `terrainResolution`: Grid resolution (e.g., 2048 for pre-generated, 256 for procedural)
 - `heights`: `Float32Array` of scaled heights matching rendered mesh
 - `heightScale`: Maximum height value (default 30 units)
 - `heightMin` / `heightMax`: Height range for normalization
+- `waterData`: River paths and water body data (for planets with water)
 
 ### Runtime Terrain (Fallback)
 

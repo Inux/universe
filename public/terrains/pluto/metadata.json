@@ -2,16 +2,16 @@
   "planet": "pluto",
   "type": "dwarf",
   "generation": {
-    "resolution": 1024,
+    "resolution": 2048,
     "terrainScale": 0.7,
     "roughness": 0.4,
     "erosionIntensity": 0.1,
-    "generationTime": 1.394
+    "generationTime": 7.047
   },
   "heightmap": {
-    "min": 0.16745977103710175,
-    "max": 0.5955111384391785,
-    "avg": 0.41210292368549517
+    "min": 0.20534367859363556,
+    "max": 0.6227375268936157,
+    "avg": 0.4264521978350615
   },
   "config": {
     "gravity": 0.62,
@@ -19,6 +19,66 @@
     "hasWater": true,
     "temperature": 44,
     "hasBiomes": false
+  },
+  "water": {
+    "seaLevel": 0.25,
+    "rivers": [],
+    "waterBodies": [
+      {
+        "id": 0,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 345,
+        "bounds": {
+          "minX": 2038,
+          "minY": 1136,
+          "maxX": 2047,
+          "maxY": 1184
+        },
+        "coastlinePoints": [
+          {
+            "x": 2045,
+            "y": 1136
+          },
+          {
+            "x": 2043,
+            "y": 1140
+          },
+          {
+            "x": 2041,
+            "y": 1146
+          },
+          {
+            "x": 2039,
+            "y": 1152
+          },
+          {
+            "x": 2040,
+            "y": 1157
+          },
+          {
+            "x": 2039,
+            "y": 1163
+          },
+          {
+            "x": 2039,
+            "y": 1168
+          },
+          {
+            "x": 2042,
+            "y": 1173
+          },
+          {
+            "x": 2043,
+            "y": 1178
+          },
+          {
+            "x": 2046,
+            "y": 1183
+          }
+        ]
+      }
+    ]
   },
   "files": {
     "heightmap": "heightmap.png",

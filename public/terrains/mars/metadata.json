@@ -2,16 +2,16 @@
   "planet": "mars",
   "type": "terrestrial",
   "generation": {
-    "resolution": 1024,
+    "resolution": 2048,
     "terrainScale": 2,
     "roughness": 0.6,
     "erosionIntensity": 0.2,
-    "generationTime": 1.494
+    "generationTime": 5.103
   },
   "heightmap": {
-    "min": 0.8022342324256897,
-    "max": 1.1325907707214355,
-    "avg": 0.9995299255223244
+    "min": 0.6116935610771179,
+    "max": 1.0936846733093262,
+    "avg": 0.9972769541560353
   },
   "config": {
     "gravity": 3.71,
@@ -20,6 +20,7 @@
     "temperature": 210,
     "hasBiomes": false
   },
+  "water": null,
   "files": {
     "heightmap": "heightmap.png",
     "normalmap": "normalmap.png"
