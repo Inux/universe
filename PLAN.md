@@ -62,24 +62,6 @@
   - Ensure draw calls / triangles / memory populate (not stuck at 0) in both solar system and surface view
   - Touchpoints: `src/lib/components/PerformanceHUD.vue`, `src/App.vue`, renderer selection via props or `window.__THREE_RENDERER__`
 
----
-
-## Phase 7.7.3: Real-World Data Integration (Optional)
-*Complexity: High | Impact: Medium*
-
-- [ ] **Earth terrain from real data**
-  - Data sources: SRTM elevation, USGS/NASA heightmaps
-  - Target locations: Grand Canyon, Himalayas, Alps
-  - Format: Convert to heightmap encoding chosen in Phase 0.1 (true 16-bit preserved end-to-end)
-  - Tool: Extend `tools/terrain-generator/` with import capability
-
-- [ ] **Mars/Moon real data**
-  - Mars: NASA HiRISE DTM data
-  - Moon: LRO LOLA elevation data
-  - Fallback: Keep procedural generation for planets without data
-
----
-
 ## Phase 7.8: Advanced Terrain Realism & Fun Factor
 *Complexity: Very High | Impact: Very High*
 

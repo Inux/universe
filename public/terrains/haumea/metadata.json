@@ -6,7 +6,7 @@
     "terrainScale": 0.3,
     "roughness": 0.2,
     "erosionIntensity": 0,
-    "generationTime": 1.375
+    "generationTime": 1.366
   },
   "heightmap": {
     "min": 0.025036629289388657,
