@@ -28,9 +28,58 @@ export interface HeightmapData {
     data: Float32Array; // Height values 0-1
 }
 
+/**
+ * River path point with position and flow data
+ */
+export interface RiverPoint {
+    x: number;
+    y: number;
+    flow: number;
+    width: number;
+}
+
+/**
+ * River path from source to mouth
+ */
+export interface RiverPath {
+    id: number;
+    points: RiverPoint[];
+    sourceX: number;
+    sourceY: number;
+    mouthX: number;
+    mouthY: number;
+    totalLength: number;
+    maxFlow: number;
+}
+
+/**
+ * Lake/ocean body data
+ */
+export interface WaterBody {
+    id: number;
+    type: 'lake' | 'ocean';
+    waterLevel: number;
+    area: number;
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    coastlinePoints: Array<{ x: number; y: number }>;
+}
+
+/**
+ * Complete water system data for a terrain
+ */
+export interface WaterSystemData {
+    rivers: RiverPath[];
+    waterBodies: WaterBody[];
+    seaLevel: number;
+}
+
 export interface GenerationResult {
     heightmap: HeightmapData;
     normalmap?: HeightmapData;
+    waterData?: WaterSystemData;
     metadata: {
         minHeight: number;
         maxHeight: number;
