@@ -439,37 +439,40 @@ export function useSurfaceView(
                 camera.value.position.z += terrainSize;
             }
 
-            // PROPER FIRST-PERSON CAMERA CONTROLS
+            // PROPER FIRST-PERSON CAMERA CONTROLS - Only update when input received
             const lookSpeed = 1.5; // radians per second
             // Strict pitch limits - prevent camera from flipping
             const maxPitch = Math.PI / 3; // 60 degrees
             const minPitch = -Math.PI / 4; // -45 degrees (look down)
 
+            let rotationChanged = false;
+
             // Update yaw (left/right rotation around world Y axis)
             if (moveState.lookLeft) {
                 cameraYaw += lookSpeed * delta;
+                rotationChanged = true;
             }
             if (moveState.lookRight) {
                 cameraYaw -= lookSpeed * delta;
+                rotationChanged = true;
             }
 
-            // Update pitch (up/down rotation around local X axis)
+            // Update pitch (up/down looking - NOT rotating)
             if (moveState.lookUp) {
                 cameraPitch = Math.min(maxPitch, cameraPitch + lookSpeed * delta);
+                rotationChanged = true;
             }
             if (moveState.lookDown) {
                 cameraPitch = Math.max(minPitch, cameraPitch - lookSpeed * delta);
+                rotationChanged = true;
             }
 
-            // Create camera orientation: yaw first (around world Y), then pitch (around local X)
-            tempQuaternion.setFromAxisAngle(upVector, cameraYaw); // Yaw around world up
-            yawQuaternion.setFromAxisAngle(forwardVector, cameraPitch); // Pitch around local forward
-
-            // Combine: yaw * pitch
-            camera.value.quaternion.multiplyQuaternions(tempQuaternion, yawQuaternion);
-
-            // Ensure up vector remains consistent
-            camera.value.up.copy(upVector);
+            // Only update camera rotation if input was received (avoid conflicts with PointerLockControls)
+            if (rotationChanged) {
+                camera.value.rotation.set(cameraPitch, cameraYaw, 0);
+                // Ensure up vector remains consistent
+                camera.value.up.copy(upVector);
+            }
 
             // JUMPING LOGIC FOR FLAT TERRAIN
             // Jump - must be checked BEFORE applying gravity
