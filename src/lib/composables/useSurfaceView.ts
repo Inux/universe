@@ -101,11 +101,6 @@ export function useSurfaceView(
     const upVector = new THREE.Vector3(0, 1, 0);
     const forwardVector = new THREE.Vector3(0, 0, -1);
 
-    // Pre-allocated raycaster for terrain collision
-    const terrainRaycaster = new THREE.Raycaster();
-    const rayOrigin = new THREE.Vector3();
-    const rayDirection = new THREE.Vector3(0, -1, 0);
-
     // Performance and physics state
     let lastTime = 0;
 
@@ -588,10 +583,11 @@ export function useSurfaceView(
             updateWater(waterMesh, dayTime * dayDuration, sunDirection);
         }
 
-        // Update starfield - follow camera position
+        // Update starfield - follow camera position and fade with daylight
         if (starfield) {
+            // Stars fade out as sun rises, fade in as sun sets
             const starOpacity = 1 - THREE.MathUtils.smoothstep(sunHeight, -0.1, 0.2);
-            (starfield.material as THREE.PointsMaterial).opacity = 1.0; // TEMP: Force full opacity
+            (starfield.material as THREE.PointsMaterial).opacity = starOpacity;
             if (camera.value) {
                 starfield.position.copy(camera.value.position);
             }
@@ -801,27 +797,10 @@ export function useSurfaceView(
             // Apply vertical velocity
             camera.value.position.y += playerVelocity.y * delta;
 
-            // TERRAIN COLLISION: Check after movement
+            // TERRAIN COLLISION: O(1) height lookup (no raycasting)
             let groundHeight = 0;
             if (terrainMesh) {
-                try {
-                    // Ensure raycaster is available
-                    if (typeof terrainRaycaster === 'undefined') {
-                        console.error('terrainRaycaster is undefined!');
-                        return;
-                    }
-
-                    tempVector3.set(camera.value.position.x, camera.value.position.y + 10, camera.value.position.z);
-                    terrainRaycaster.set(tempVector3, rayDirection);
-
-                    const intersects = terrainRaycaster.intersectObject(terrainMesh, false);
-                    if (intersects.length > 0) {
-                        groundHeight = intersects[0].point.y;
-                    }
-                } catch (error) {
-                    console.error('Error in terrain collision:', error);
-                    return; // Prevent further execution
-                }
+                groundHeight = getTerrainHeight(terrainMesh, camera.value.position.x, camera.value.position.z);
             }
             const targetY = groundHeight + eyeHeight;
 

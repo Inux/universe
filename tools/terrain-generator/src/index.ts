@@ -26,7 +26,7 @@ async function main() {
     console.log();
 
     // Generation settings
-    const resolution = 1024; // Balanced resolution for quality and performance
+    const resolution = 2048; // High resolution for detailed water systems
     console.log(`Settings:`);
     console.log(`  Resolution: ${resolution}x${resolution} (${(resolution * resolution / 1000000).toFixed(1)}M pixels)`);
     console.log(`  Format: 16-bit PNG heightmaps + 8-bit RGB normalmaps`);

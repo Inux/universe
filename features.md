@@ -164,13 +164,18 @@
 
 ## 8. Performance Features
 
-### 8.1 Terrain Optimization
+### 8.1 Performance HUD
+- **Toggle**: Press `F3` to show/hide performance overlay
+- **Metrics displayed**: FPS, draw calls, triangles, memory usage
+- **Color coding**: FPS indicator changes color (green/yellow/red) based on performance
+
+### 8.2 Terrain Optimization
 - **Prop culling**: Distance-based prop visibility (150 units)
 - **Solar system pause**: Solar system rendering is paused while in surface view
 - **Minimap throttling**: Minimap rendering is throttled for performance
 - **Pre-generated assets**: Terrain loaded from cached heightmaps
 
-### 8.2 Asset Loading
+### 8.3 Asset Loading
 - **Lazy loading**: Terrain only loads when visiting planet
 - **Browser caching**: PNG assets cached automatically
 - **Fallback**: Runtime generation if pre-generated terrain fails
