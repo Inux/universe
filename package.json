@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "serve": "vite preview",
-    "generate:terrains": "cd tools/terrain-generator && npm install && npm run generate",
-    "generate:terrain": "cd tools/terrain-generator && npm install && npm run dev"
+    "generate:terrains": "cd tools/terrain-generator && npm install && npm run generate"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.3",
