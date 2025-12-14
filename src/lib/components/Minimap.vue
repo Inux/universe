@@ -52,6 +52,17 @@ function drawMinimap() {
   const playerX = props.playerPosition.x;
   const playerZ = props.playerPosition.z;
 
+  // Get terrain data once outside the loop for performance
+  const terrainData = props.terrainMesh.userData;
+  const minimapColors = terrainData.minimapColors as Uint8Array | undefined;
+  const minimapRes = (terrainData.minimapResolution as number) || 256;
+
+  const terrainSize = terrainData.terrainSize as number;
+  const halfSize = terrainSize / 2;
+
+  // Use minimap colors if available, otherwise fall back to height-based coloring
+  const useMinimapColors = minimapColors && minimapColors.length > 0;
+
   const pixelsPerUnit = size / (viewRadius * 2);
 
   // Draw grid
@@ -72,74 +83,62 @@ function drawMinimap() {
     ctx.stroke();
   }
 
-  // Draw terrain (simplified - just show biome colors)
+  // Draw terrain using stored biome colors from terrain mesh
   const resolution = 50; // Pixels per sample
   const step = (viewRadius * 2) / resolution;
+  const pixelSize = size / resolution;
 
   for (let x = 0; x < resolution; x++) {
     for (let z = 0; z < resolution; z++) {
       const worldX = playerX - viewRadius + x * step;
       const worldZ = playerZ - viewRadius + z * step;
 
-      // Get terrain height at this position (simplified)
-      const terrainData = props.terrainMesh.userData;
-      const heights = terrainData.heights as Float32Array | number[];
-      if (heights && heights.length > 0) {
-        // Map world position to terrain grid
-        const terrainSize = terrainData.terrainSize as number;
-        const terrainRes = terrainData.terrainResolution as number;
-        const heightMin = (terrainData.heightMin as number) || 0;
-        const heightMax = (terrainData.heightMax as number) || 1;
-        const halfSize = terrainSize / 2;
+      // Wrap coordinates
+      let localX = worldX;
+      let localZ = worldZ;
+      while (localX > halfSize) localX -= terrainSize;
+      while (localX < -halfSize) localX += terrainSize;
+      while (localZ > halfSize) localZ -= terrainSize;
+      while (localZ < -halfSize) localZ += terrainSize;
 
-        // Wrap coordinates
-        let localX = worldX;
-        let localZ = worldZ;
-        while (localX > halfSize) localX -= terrainSize;
-        while (localX < -halfSize) localX += terrainSize;
-        while (localZ > halfSize) localZ -= terrainSize;
-        while (localZ < -halfSize) localZ += terrainSize;
+      // Convert to grid indices (match getTerrainHeight in terrain.ts)
+      const geoX = -localX; // Flip X due to 180° Z rotation
+      const geoY = localZ;  // Z becomes Y after -90° X rotation
 
-        // Convert to grid indices
-        // Match the coordinate transformation from getTerrainHeight in terrain.ts:
-        // The terrain mesh is rotated -90° X then 180° Z
-        // World X corresponds to geometry X (but flipped by 180° rotation)
-        // World Z corresponds to geometry Y (after -90° X rotation)
-        const geoX = -localX; // Flip X due to 180° Z rotation
-        const geoY = localZ;  // Z becomes Y after -90° X rotation
+      const normX = (geoX + halfSize) / terrainSize;
+      const normY = (geoY + halfSize) / terrainSize;
 
-        const normX = (geoX + halfSize) / terrainSize;
-        const normZ = (geoY + halfSize) / terrainSize;
+      const clampedNormX = Math.max(0, Math.min(1, normX));
+      const clampedNormY = Math.max(0, Math.min(1, normY));
 
-        // Clamp to valid range
-        const clampedNormX = Math.max(0, Math.min(1, normX));
-        const clampedNormZ = Math.max(0, Math.min(1, normZ));
+      let r: number, g: number, b: number;
 
-        const gridX = Math.floor(clampedNormX * (terrainRes - 1));
-        const gridZ = Math.floor(clampedNormZ * (terrainRes - 1));
-        const idx = gridZ * terrainRes + gridX;
+      if (useMinimapColors) {
+        // Sample from stored biome colors
+        // The color array is stored as [z * res + x] in heightmap space
+        // clampedNormX corresponds to -localX (flipped), clampedNormY corresponds to localZ
+        // We need to flip X back to match the color array storage
+        const gridX = Math.floor((1 - clampedNormX) * (minimapRes - 1));
+        const gridY = Math.floor(clampedNormY * (minimapRes - 1));
+        const colorIdx = (gridY * minimapRes + gridX) * 3;
 
-        if (idx >= 0 && idx < heights.length) {
-          const height = heights[idx];
-          // Normalize height to 0-1 using actual min/max range
-          const normalizedHeight = (height - heightMin) / (heightMax - heightMin);
-
-          // Color based on height
-          let color;
-          if (normalizedHeight < 0.3) {
-            color = `rgb(58, 140, 61)`; // Green (low)
-          } else if (normalizedHeight < 0.6) {
-            color = `rgb(139, 105, 20)`; // Brown (medium)
-          } else {
-            color = `rgb(125, 109, 92)`; // Gray (high)
-          }
-
-          const pixelX = x * (size / resolution);
-          const pixelZ = z * (size / resolution);
-          ctx.fillStyle = color;
-          ctx.fillRect(pixelX, pixelZ, size / resolution + 1, size / resolution + 1);
+        if (colorIdx >= 0 && colorIdx + 2 < minimapColors.length) {
+          r = minimapColors[colorIdx];
+          g = minimapColors[colorIdx + 1];
+          b = minimapColors[colorIdx + 2];
+        } else {
+          r = 50; g = 50; b = 50; // Fallback gray
         }
+      } else {
+        // Fallback: simple gray gradient
+        r = 80; g = 80; b = 80;
       }
+
+      const color = `rgb(${r}, ${g}, ${b})`;
+      const pixelX = x * pixelSize;
+      const pixelZ = z * pixelSize;
+      ctx.fillStyle = color;
+      ctx.fillRect(pixelX, pixelZ, pixelSize + 1, pixelSize + 1);
     }
   }
 
