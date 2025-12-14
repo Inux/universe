@@ -2,6 +2,31 @@ import * as THREE from 'three';
 import { createNoise2D, createNoise3D } from 'simplex-noise';
 
 /**
+ * Biome types for Earth-like planets
+ */
+export enum BiomeType {
+    OCEAN = 'ocean',
+    BEACH = 'beach',
+    PLAINS = 'plains',
+    FOREST = 'forest',
+    DESERT = 'desert',
+    TUNDRA = 'tundra',
+    MOUNTAIN = 'mountain',
+}
+
+/**
+ * Biome configuration
+ */
+export interface BiomeConfig {
+    name: BiomeType;
+    color: THREE.Color;
+    secondaryColor: THREE.Color;
+    heightModifier: number;  // Multiplier for terrain height in this biome
+    roughness: number;       // Material roughness
+    metalness: number;       // Material metalness
+}
+
+/**
  * Terrain configuration for different planets
  */
 export interface TerrainConfig {
@@ -16,6 +41,7 @@ export interface TerrainConfig {
     waterColor?: THREE.Color;    // Water color if applicable
     atmosphereColor?: THREE.Color;
     gravity: number;             // Surface gravity in m/s²
+    hasBiomes?: boolean;         // Enable biome system (Earth only)
 }
 
 /**
@@ -55,6 +81,7 @@ export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
         waterColor: new THREE.Color(0x1a5f7a),
         atmosphereColor: new THREE.Color(0x87ceeb),
         gravity: 9.81,
+        hasBiomes: true,
     },
     mars: {
         noiseFrequency: 0.9,
@@ -165,11 +192,75 @@ export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
 };
 
 /**
+ * Biome definitions for Earth
+ */
+export const BIOMES: { [key in BiomeType]: BiomeConfig } = {
+    [BiomeType.OCEAN]: {
+        name: BiomeType.OCEAN,
+        color: new THREE.Color(0x1a5f7a),
+        secondaryColor: new THREE.Color(0x144a5a),
+        heightModifier: 0.0,
+        roughness: 0.1,
+        metalness: 0.3,
+    },
+    [BiomeType.BEACH]: {
+        name: BiomeType.BEACH,
+        color: new THREE.Color(0xe8d5a3),
+        secondaryColor: new THREE.Color(0xc9b88a),
+        heightModifier: 0.3,
+        roughness: 0.95,
+        metalness: 0.0,
+    },
+    [BiomeType.PLAINS]: {
+        name: BiomeType.PLAINS,
+        color: new THREE.Color(0x5a9c3d),
+        secondaryColor: new THREE.Color(0x4a8c2d),
+        heightModifier: 0.5,
+        roughness: 0.9,
+        metalness: 0.0,
+    },
+    [BiomeType.FOREST]: {
+        name: BiomeType.FOREST,
+        color: new THREE.Color(0x2d5c1e),
+        secondaryColor: new THREE.Color(0x1d4c0e),
+        heightModifier: 0.7,
+        roughness: 0.95,
+        metalness: 0.0,
+    },
+    [BiomeType.DESERT]: {
+        name: BiomeType.DESERT,
+        color: new THREE.Color(0xddb874),
+        secondaryColor: new THREE.Color(0xc9a864),
+        heightModifier: 0.4,
+        roughness: 0.9,
+        metalness: 0.05,
+    },
+    [BiomeType.TUNDRA]: {
+        name: BiomeType.TUNDRA,
+        color: new THREE.Color(0xd4e4e8),
+        secondaryColor: new THREE.Color(0xf0f8ff),
+        heightModifier: 0.6,
+        roughness: 0.8,
+        metalness: 0.1,
+    },
+    [BiomeType.MOUNTAIN]: {
+        name: BiomeType.MOUNTAIN,
+        color: new THREE.Color(0x7d6d5c),
+        secondaryColor: new THREE.Color(0xe0e0e0),
+        heightModifier: 1.5,
+        roughness: 0.95,
+        metalness: 0.05,
+    },
+};
+
+/**
  * Procedural terrain generator using simplex noise
  */
 export class TerrainGenerator {
     private noise2D: ReturnType<typeof createNoise2D>;
     private noise3D: ReturnType<typeof createNoise3D>;
+    private biomeNoise: ReturnType<typeof createNoise2D>; // Separate noise for biomes
+    private moistureNoise: ReturnType<typeof createNoise2D>; // For biome variation
     private config: TerrainConfig;
 
     constructor(config: TerrainConfig, seed?: number) {
@@ -177,6 +268,8 @@ export class TerrainGenerator {
         const random = seed !== undefined ? this.seededRandom(seed) : Math.random;
         this.noise2D = createNoise2D(random);
         this.noise3D = createNoise3D(random);
+        this.biomeNoise = createNoise2D(this.seededRandom((seed || 0) + 1000));
+        this.moistureNoise = createNoise2D(this.seededRandom((seed || 0) + 2000));
         this.config = config;
     }
 
@@ -185,6 +278,54 @@ export class TerrainGenerator {
             seed = (seed * 9301 + 49297) % 233280;
             return seed / 233280;
         };
+    }
+
+    /**
+     * Determine biome type based on height and moisture
+     */
+    public getBiome(x: number, y: number, height: number): BiomeType {
+        if (!this.config.hasBiomes) {
+            return BiomeType.PLAINS; // Default biome for non-Earth planets
+        }
+
+        const waterLevel = this.config.waterLevel || 0.35;
+
+        // Ocean
+        if (height < waterLevel * 0.9) {
+            return BiomeType.OCEAN;
+        }
+
+        // Beach (near water)
+        if (height < waterLevel * 1.1) {
+            return BiomeType.BEACH;
+        }
+
+        // Get temperature (latitude-like) and moisture values
+        const temperature = (this.biomeNoise(x * 0.3, y * 0.3) + 1) / 2; // 0-1
+        const moisture = (this.moistureNoise(x * 0.5, y * 0.5) + 1) / 2;  // 0-1
+
+        // Mountain (high elevation)
+        if (height > 0.75) {
+            return BiomeType.MOUNTAIN;
+        }
+
+        // Tundra (cold, high latitude)
+        if (temperature < 0.25) {
+            return BiomeType.TUNDRA;
+        }
+
+        // Desert (hot and dry)
+        if (temperature > 0.7 && moisture < 0.4) {
+            return BiomeType.DESERT;
+        }
+
+        // Forest (moderate temp, high moisture)
+        if (moisture > 0.5) {
+            return BiomeType.FOREST;
+        }
+
+        // Plains (default)
+        return BiomeType.PLAINS;
     }
 
     /**
@@ -241,9 +382,9 @@ export class TerrainGenerator {
     }
 
     /**
-     * Get terrain color based on height
+     * Get terrain color based on height and biome with smooth transitions
      */
-    public getColor(height: number): THREE.Color {
+    public getColor(height: number, x?: number, y?: number): THREE.Color {
         const normalizedHeight = height / this.config.amplitude;
 
         // Check for water
@@ -251,7 +392,51 @@ export class TerrainGenerator {
             return this.config.waterColor || new THREE.Color(0x1a5f7a);
         }
 
-        // Interpolate between base and secondary color based on height
+        // If biomes are enabled and coordinates provided, use biome-based coloring
+        if (this.config.hasBiomes && x !== undefined && y !== undefined) {
+            // Sample biomes in a small radius for smooth blending
+            const blendRadius = 0.15; // Noise space radius for blending
+            const samples = [
+                { x: x, y: y, weight: 1.0 },
+                { x: x + blendRadius, y: y, weight: 0.5 },
+                { x: x - blendRadius, y: y, weight: 0.5 },
+                { x: x, y: y + blendRadius, weight: 0.5 },
+                { x: x, y: y - blendRadius, weight: 0.5 },
+            ];
+
+            const biomeWeights = new Map<BiomeType, number>();
+            let totalWeight = 0;
+
+            // Sample biomes at different points
+            for (const sample of samples) {
+                const sampleHeight = this.getHeight(sample.x, sample.y) / this.config.amplitude;
+                const biome = this.getBiome(sample.x, sample.y, sampleHeight);
+
+                const currentWeight = biomeWeights.get(biome) || 0;
+                biomeWeights.set(biome, currentWeight + sample.weight);
+                totalWeight += sample.weight;
+            }
+
+            // Blend colors based on biome weights
+            const blendedColor = new THREE.Color(0, 0, 0);
+            for (const [biome, weight] of biomeWeights) {
+                const biomeConfig = BIOMES[biome];
+                const biomeFactor = weight / totalWeight;
+
+                // Mix between biome colors based on height
+                const biomeColor = new THREE.Color();
+                biomeColor.lerpColors(biomeConfig.color, biomeConfig.secondaryColor, normalizedHeight);
+
+                // Add weighted contribution
+                blendedColor.r += biomeColor.r * biomeFactor;
+                blendedColor.g += biomeColor.g * biomeFactor;
+                blendedColor.b += biomeColor.b * biomeFactor;
+            }
+
+            return blendedColor;
+        }
+
+        // Fallback: interpolate between base and secondary color based on height
         const color = new THREE.Color();
         color.lerpColors(
             this.config.baseColor,
@@ -261,6 +446,50 @@ export class TerrainGenerator {
 
         return color;
     }
+
+    /**
+     * Get biome-modified height
+     */
+    public getBiomeHeight(x: number, y: number, baseHeight: number): number {
+        if (!this.config.hasBiomes) {
+            return baseHeight;
+        }
+
+        const normalizedHeight = baseHeight / this.config.amplitude;
+        const biome = this.getBiome(x, y, normalizedHeight);
+        const biomeConfig = BIOMES[biome];
+
+        // Apply biome height modifier
+        return baseHeight * biomeConfig.heightModifier;
+    }
+}
+
+/**
+ * Create multiple LOD levels for terrain
+ */
+export function createTerrainLOD(
+    planetName: string,
+    size: number = 100,
+    baseResolution: number = 256
+): THREE.LOD {
+    const lod = new THREE.LOD();
+
+    // High detail (near player)
+    const highDetail = createTerrainMesh(planetName, size, baseResolution);
+    lod.addLevel(highDetail, 0);
+
+    // Medium detail
+    const mediumDetail = createTerrainMesh(planetName, size, Math.floor(baseResolution / 2));
+    lod.addLevel(mediumDetail, 100);
+
+    // Low detail (far from player)
+    const lowDetail = createTerrainMesh(planetName, size, Math.floor(baseResolution / 4));
+    lod.addLevel(lowDetail, 200);
+
+    lod.userData.terrainSize = size;
+    lod.userData.baseResolution = baseResolution;
+
+    return lod;
 }
 
 /**
@@ -291,15 +520,24 @@ export function createTerrainMesh(
         const nx = (x / size + 0.5) * 3;
         const nz = (z / size + 0.5) * 3;
 
-        // Get normalized height (0-1) and scale it
-        const normalizedHeight = generator.getHeight(nx, nz) / config.amplitude;
-        const height = normalizedHeight * heightScale;
+        // Get base height
+        let baseHeight = generator.getHeight(nx, nz);
+
+        // Apply biome height modifier if biomes are enabled
+        if (config.hasBiomes) {
+            const normalizedHeight = baseHeight / config.amplitude;
+            const biome = generator.getBiome(nx, nz, normalizedHeight);
+            const biomeConfig = BIOMES[biome];
+            baseHeight *= biomeConfig.heightModifier;
+        }
+
+        const height = (baseHeight / config.amplitude) * heightScale;
 
         positions.setZ(i, height);
         heights.push(height);
 
-        // Get color for this height
-        const color = generator.getColor(normalizedHeight * config.amplitude);
+        // Get color for this height with biome support
+        const color = generator.getColor(baseHeight, nx, nz);
         colors.push(color.r, color.g, color.b);
     }
 
