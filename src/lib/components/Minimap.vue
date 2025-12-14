@@ -32,6 +32,8 @@ const size = 200; // Minimap size in pixels
 const viewRadius = 50; // World units visible on minimap
 
 let animationId: number | null = null;
+let lastDrawTime = 0;
+const DRAW_INTERVAL_MS = 100; // 10Hz refresh rate
 
 function drawMinimap() {
   if (!canvas.value || !props.terrainMesh) return;
@@ -81,11 +83,13 @@ function drawMinimap() {
 
       // Get terrain height at this position (simplified)
       const terrainData = props.terrainMesh.userData;
-      const heights = terrainData.heights as number[];
-      if (heights) {
+      const heights = terrainData.heights as Float32Array | number[];
+      if (heights && heights.length > 0) {
         // Map world position to terrain grid
         const terrainSize = terrainData.terrainSize as number;
         const terrainRes = terrainData.terrainResolution as number;
+        const heightMin = (terrainData.heightMin as number) || 0;
+        const heightMax = (terrainData.heightMax as number) || 1;
         const halfSize = terrainSize / 2;
 
         // Wrap coordinates
@@ -105,7 +109,8 @@ function drawMinimap() {
 
         if (idx >= 0 && idx < heights.length) {
           const height = heights[idx];
-          const normalizedHeight = height / 30; // Assuming heightScale = 30
+          // Normalize height to 0-1 using actual min/max range
+          const normalizedHeight = (height - heightMin) / (heightMax - heightMin);
 
           // Color based on height
           let color;
@@ -146,9 +151,13 @@ function drawMinimap() {
   ctx.stroke();
 }
 
-function animate() {
+function animate(currentTime: number = 0) {
   if (props.visible) {
-    drawMinimap();
+    // Throttle to 10Hz for performance
+    if (currentTime - lastDrawTime >= DRAW_INTERVAL_MS) {
+      drawMinimap();
+      lastDrawTime = currentTime;
+    }
     animationId = requestAnimationFrame(animate);
   }
 }

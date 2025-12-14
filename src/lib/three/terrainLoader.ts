@@ -35,6 +35,7 @@ export interface LoadedTerrain {
     width: number;
     height: number;
     metadata: TerrainMetadata;
+    normalmap: HTMLImageElement | null;
 }
 
 /**
@@ -59,23 +60,49 @@ export async function loadPreGeneratedTerrain(planetName: string): Promise<Loade
     const blob = await heightmapResponse.blob();
     const heightmapData = await decodeHeightmapPNG(blob, metadata);
 
+    // Load normalmap if available
+    let normalmap: HTMLImageElement | null = null;
+    if (metadata.files.normalmap) {
+        try {
+            normalmap = await loadImage(`${basePath}/normalmap.png`);
+        } catch (e) {
+            console.warn(`Failed to load normalmap for ${planetName}:`, e);
+        }
+    }
+
     return {
         heightmap: heightmapData,
         width: metadata.generation.resolution,
         height: metadata.generation.resolution,
         metadata,
+        normalmap,
     };
 }
 
 /**
+ * Load an image as HTMLImageElement
+ */
+function loadImage(url: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+        img.src = url;
+    });
+}
+
+/**
  * Decode 16-bit grayscale PNG heightmap to Float32Array
+ *
+ * Note: Browser Canvas API only supports 8-bit per channel. For true 16-bit support,
+ * the terrain generator outputs 16-bit values encoded as R (high byte) + G (low byte).
+ * This function reads both channels and reconstructs the 16-bit value.
  */
 async function decodeHeightmapPNG(blob: Blob, metadata: TerrainMetadata): Promise<Float32Array> {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
             try {
-                // Create canvas to read pixel data
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width;
                 canvas.height = img.height;
@@ -86,14 +113,10 @@ async function decodeHeightmapPNG(blob: Blob, metadata: TerrainMetadata): Promis
                     return;
                 }
 
-                // Draw image to canvas
                 ctx.drawImage(img, 0, 0);
-
-                // Read pixel data
                 const imageData = ctx.getImageData(0, 0, img.width, img.height);
                 const data = imageData.data;
 
-                // Convert RGBA to heights
                 const heightmap = new Float32Array(img.width * img.height);
                 const min = metadata.heightmap.min;
                 const max = metadata.heightmap.max;
@@ -101,14 +124,26 @@ async function decodeHeightmapPNG(blob: Blob, metadata: TerrainMetadata): Promis
 
                 for (let i = 0; i < heightmap.length; i++) {
                     const pixelIdx = i * 4;
-                    // PNG is 8-bit per channel in canvas, so we need to combine R and G for 16-bit
-                    // For grayscale PNG loaded via canvas, all RGB channels are the same
-                    const normalized = data[pixelIdx] / 255;
+                    const r = data[pixelIdx];
+                    const g = data[pixelIdx + 1];
 
-                    // Denormalize using original min/max from metadata
+                    // Check if R and G are different (16-bit encoded as R=high, G=low)
+                    // If they're the same, it's a standard 8-bit grayscale
+                    let normalized: number;
+                    if (r === g) {
+                        // 8-bit grayscale (fallback)
+                        normalized = r / 255;
+                    } else {
+                        // 16-bit encoded: R = high byte, G = low byte
+                        const value16 = (r << 8) | g;
+                        normalized = value16 / 65535;
+                    }
+
                     heightmap[i] = min + normalized * range;
                 }
 
+                // Clean up blob URL
+                URL.revokeObjectURL(img.src);
                 resolve(heightmap);
             } catch (error) {
                 reject(error);
@@ -116,6 +151,7 @@ async function decodeHeightmapPNG(blob: Blob, metadata: TerrainMetadata): Promis
         };
 
         img.onerror = () => {
+            URL.revokeObjectURL(img.src);
             reject(new Error('Failed to load heightmap image'));
         };
 
