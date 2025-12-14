@@ -804,12 +804,12 @@ export function createStarfield(radius: number = 900): THREE.Points {
         transparent: true,
         opacity: 1.0,
         sizeAttenuation: false,
-        depthTest: false, // keep stars visible even with sky dome
-        depthWrite: false,
+        depthTest: true,   // allow mountains/terrain to occlude stars
+        depthWrite: false, // but don't write depth so sky/atmosphere unaffected
     });
 
     const stars = new THREE.Points(geometry, material);
-    stars.renderOrder = 1; // render after sky dome
+    stars.renderOrder = -1; // render behind sky/terrain
     stars.userData.isStarfield = true;
     return stars;
 }

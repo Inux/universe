@@ -113,14 +113,9 @@ export function useSurfaceView(
         renderer.value.shadowMap.type = THREE.PCFSoftShadowMap;
         containerRef.value.appendChild(renderer.value.domElement);
 
-        // First-person controls: keep pointer lock but disable mouse-driven rotation
-        controls.value = new PointerLockControls(camera.value, renderer.value.domElement);
-        (controls.value as any).onMouseMove = () => {}; // prevent mouse rotation
-        scene.value.add(controls.value.getObject());
-
-        // Click to lock pointer for first-person control
+        // Pointer lock for cursor hiding; camera rotation handled manually
         renderer.value.domElement.addEventListener('click', () => {
-            controls.value?.lock();
+            renderer.value?.domElement.requestPointerLock();
         });
 
         // Lighting - ambient for base illumination
