@@ -15,9 +15,10 @@ export interface PlanetData {
     radius: number;  // km
     distanceFromSun: number;  // km
     orbitalPeriod: number;  // days
-    rotationPeriod: number;  // hours
+    rotationPeriod: number;  // hours, negative = retrograde
     texture: string;
     color: number;  // hex color as fallback
+    axialTilt?: number;  // degrees, obliquity to the ecliptic
     moons?: MoonData[];
     hasAtmosphere?: boolean;
     hasRings?: boolean;
@@ -27,21 +28,113 @@ export const SCALE = {
     DISTANCE: 1/100000,
     TIME: 1000000,
     MAX_HEIGHT: 5e8,
-    MOON_SCALE: 1/2
 };
 
-// Logarithmic size scaling constants
+// Logarithmic size scaling constants.
+// The floor stays below Makemake's natural size so dwarf planets stay smaller than Mercury.
 const REFERENCE_RADIUS = 6371;
 const BASE_VISUAL_SIZE = 50;
-const MIN_PLANET_SIZE = 20;
+const MIN_PLANET_SIZE = 4;
 const MAX_PLANET_SIZE = 400;
+
+// Simulated rotation-hours per real second at the tour clock.
+// Earth turns about once per 3 minutes. Slower clocks use a smaller scale (see viewScale.ts).
+export const SPIN_VISUAL_CAP = 0.12;
+
+/** Discrete distance stops. 0 is true spacing, the last stop is the packed tour. */
+export const DISTANCE_STEP_COUNT = 6;
 
 export function getLogarithmicSize(realRadius: number): number {
     const logSize = BASE_VISUAL_SIZE * Math.log(1 + realRadius / REFERENCE_RADIUS);
     return Math.max(MIN_PLANET_SIZE, Math.min(MAX_PLANET_SIZE, logSize));
 }
 
+/**
+ * Moon radius as a fraction of the parent visual radius.
+ * A small floor keeps Phobos and Deimos visible without making them planet-sized.
+ */
+export function getMoonVisualRadius(moonRadiusKm: number, parentRadiusKm: number, parentVisual: number): number {
+    return Math.max(parentVisual * (moonRadiusKm / parentRadiusKm), 0.6);
+}
+
+/**
+ * Moon orbit in scene units.
+ * Real orbits are tiny next to the logarithmic planet sizes, so distances are
+ * compressed with log2 of (orbit / parent radius) and clamped outside the parent.
+ */
+export function getMoonOrbitDistance(
+    moonDistanceKm: number,
+    parentRadiusKm: number,
+    parentVisual: number,
+    moonVisual: number,
+    distanceScale: number
+): number {
+    const radii = Math.max(moonDistanceKm / parentRadiusKm, 1.01);
+    const compressed = parentVisual * (1.25 + 0.28 * Math.log2(radii)) * distanceScale;
+    return Math.max(compressed, parentVisual + moonVisual + parentVisual * 0.15);
+}
+
 export const DISTANCE_SCALE_FACTOR = 0.8;
+
+function distanceStepUnit(step: number): number {
+    const last = DISTANCE_STEP_COUNT - 1;
+    const index = Math.min(last, Math.max(0, Math.round(Number.isFinite(step) ? step : last)));
+    return index / last;
+}
+
+/** Geometric blend. The ends are exact: u=0 is `real`, u=1 is `current`. */
+function blendLog(real: number, current: number, unit: number): number {
+    if (unit <= 0) return real;
+    if (unit >= 1) return current;
+    if (real === current) return real;
+    if (real <= 0 || current <= 0) return real + (current - real) * unit;
+    return Math.exp(Math.log(real) * (1 - unit) + Math.log(current) * unit);
+}
+
+/**
+ * Planet–Sun distance in scene units.
+ * Real distances keep the Sun's on-screen size as the ruler, so a planet's
+ * logarithmic size is unchanged while its orbit grows out to true proportion.
+ */
+export function planetOrbitRadius(distanceKm: number, step: number): number {
+    if (distanceKm <= 0) return 0;
+    const unit = distanceStepUnit(step);
+    const sunVisual = getLogarithmicSize(SOLAR_SYSTEM.sun.radius);
+    const real = distanceKm * (sunVisual / SOLAR_SYSTEM.sun.radius);
+    const current = distanceKm * SCALE.DISTANCE * DISTANCE_SCALE_FACTOR;
+    return blendLog(real, current, unit);
+}
+
+/**
+ * Moon orbit in scene units. Real stops use parent radii times the parent's
+ * visual size. The tour stop is the existing log-compressed orbit.
+ */
+export function moonOrbitRadius(
+    moonDistanceKm: number,
+    parentRadiusKm: number,
+    parentVisual: number,
+    moonVisual: number,
+    step: number
+): number {
+    const unit = distanceStepUnit(step);
+    const real = (moonDistanceKm / parentRadiusKm) * parentVisual;
+    const current = getMoonOrbitDistance(
+        moonDistanceKm,
+        parentRadiusKm,
+        parentVisual,
+        moonVisual,
+        DISTANCE_SCALE_FACTOR
+    );
+    return blendLog(real, current, unit);
+}
+
+export function farthestOrbitRadius(step: number): number {
+    let farthest = 0;
+    for (const data of Object.values(SOLAR_SYSTEM)) {
+        farthest = Math.max(farthest, planetOrbitRadius(data.distanceFromSun, step));
+    }
+    return farthest;
+}
 
 export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
     sun: {
@@ -50,6 +143,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 0,
         orbitalPeriod: 0,
         rotationPeriod: 609.6,
+        axialTilt: 7.25,
         texture: '/textures/2k_sun.jpg',
         color: 0xffdd44
     },
@@ -59,6 +153,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 57.9e6,
         orbitalPeriod: 88,
         rotationPeriod: 1407.6,
+        axialTilt: 0.03,
         texture: '/textures/2k_mercury.jpg',
         color: 0x888888,
         hasAtmosphere: false
@@ -69,7 +164,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 108.2e6,
         orbitalPeriod: 224.7,
         rotationPeriod: -5832.5,
-        texture: '/textures/2k_venus_surface.jpg',
+        axialTilt: 177.4,
+        texture: '/textures/2k_venus_atmosphere.jpg',
         color: 0xffd700,
         hasAtmosphere: true
     },
@@ -78,7 +174,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         radius: 6371,
         distanceFromSun: 149.6e6,
         orbitalPeriod: 365.25,
-        rotationPeriod: 24,
+        rotationPeriod: 23.93,
+        axialTilt: 23.44,
         texture: '/textures/2k_earth_daymap.jpg',
         color: 0x2233ff,
         hasAtmosphere: true,
@@ -91,7 +188,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         radius: 3389.5,
         distanceFromSun: 227.9e6,
         orbitalPeriod: 687,
-        rotationPeriod: 24.6,
+        rotationPeriod: 24.62,
+        axialTilt: 25.19,
         texture: '/textures/2k_mars.jpg',
         color: 0xcd5c5c,
         hasAtmosphere: true,
@@ -105,7 +203,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         radius: 69911,
         distanceFromSun: 778.5e6,
         orbitalPeriod: 4333,
-        rotationPeriod: 9.9,
+        rotationPeriod: 9.93,
+        axialTilt: 3.13,
         texture: '/textures/2k_jupiter.jpg',
         color: 0xd8ca9d,
         hasAtmosphere: true,
@@ -121,7 +220,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         radius: 58232,
         distanceFromSun: 1432e6,
         orbitalPeriod: 10759,
-        rotationPeriod: 10.7,
+        rotationPeriod: 10.66,
+        axialTilt: 26.73,
         texture: '/textures/2k_saturn.jpg',
         color: 0xfad5a5,
         hasAtmosphere: true,
@@ -138,7 +238,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         radius: 25362,
         distanceFromSun: 2867e6,
         orbitalPeriod: 30687,
-        rotationPeriod: -17.2,
+        rotationPeriod: -17.24,
+        axialTilt: 97.77,
         texture: '/textures/2k_uranus.jpg',
         color: 0x4fd0e7,
         hasAtmosphere: true,
@@ -155,7 +256,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         radius: 24622,
         distanceFromSun: 4515e6,
         orbitalPeriod: 60190,
-        rotationPeriod: 16.1,
+        rotationPeriod: 16.11,
+        axialTilt: 28.32,
         texture: '/textures/2k_neptune.jpg',
         color: 0x4169e1,
         hasAtmosphere: true,
@@ -171,7 +273,8 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
         distanceFromSun: 5906.4e6,
         orbitalPeriod: 90560,  // ~248 years
         rotationPeriod: -153.3,  // Retrograde rotation
-        texture: '/textures/2k_pluto.jpg',
+        axialTilt: 122.53,
+        texture: '',  // No full global mosaic is shipped; New Horizons mapped one face
         color: 0xc9b896,
         moons: [
             { name: "Charon", radius: 606, distance: 19591, orbitalPeriod: 6.39, color: 0x808080 }
@@ -215,6 +318,7 @@ export const SOLAR_SYSTEM: { [key: string]: PlanetData } = {
 
 export interface CelestialBody {
     mesh: THREE.Mesh;
+    root: THREE.Group;  // orbital position and axial tilt; the mesh spins inside it
     atmosphere?: THREE.Mesh;
     glow?: THREE.Mesh;
     corona?: THREE.Mesh;
@@ -233,7 +337,7 @@ export interface SolarSystemObjects {
 export async function createSolarSystem(
     scene: THREE.Scene,
     textureLoader: THREE.TextureLoader,
-    distanceScale: number
+    distanceStep: number
 ): Promise<SolarSystemObjects> {
     const planets = new Map<string, CelestialBody>();
     const moons = new Map<string, THREE.Mesh>();
@@ -246,13 +350,13 @@ export async function createSolarSystem(
     for (const [name, data] of Object.entries(SOLAR_SYSTEM)) {
         if (name === 'sun') continue;
 
-        const planetBody = await createPlanet(scene, textureLoader, name, data, distanceScale);
+        const planetBody = await createPlanet(scene, textureLoader, name, data, distanceStep);
         planets.set(name, planetBody);
 
         // Create moons
         if (data.moons) {
             for (const moonData of data.moons) {
-                const moon = createMoon(scene, planetBody.mesh, moonData, distanceScale);
+                const moon = createMoon(scene, planetBody.root, moonData, data.radius, distanceStep);
                 moons.set(`${name}-${moonData.name}`, moon);
             }
         }
@@ -265,10 +369,14 @@ async function loadTextureWithFallback(
     loader: THREE.TextureLoader,
     url: string
 ): Promise<THREE.Texture | null> {
+    if (!url) return null;
     try {
-        return await new Promise((resolve, reject) => {
+        const texture = await new Promise<THREE.Texture>((resolve, reject) => {
             loader.load(url, resolve, undefined, reject);
         });
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = 8;
+        return texture;
     } catch (error) {
         console.warn(`Failed to load texture ${url}`);
         return null;
@@ -292,10 +400,16 @@ async function createSun(
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = 'sun';
-    scene.add(mesh);
 
-    // Add point light
-    const sunLight = new THREE.PointLight(0xffffff, 2, 0, 0.5);
+    const root = new THREE.Group();
+    root.name = 'sunRoot';
+    root.rotation.z = THREE.MathUtils.degToRad(data.axialTilt ?? 0);
+    root.add(mesh);
+    scene.add(root);
+
+    // No distance falloff: planet distances are compressed, and a physical
+    // inverse-square sun would leave Neptune black. Direction still comes from the sun.
+    const sunLight = new THREE.PointLight(0xfff4dd, 2.4, 0, 0);
     mesh.add(sunLight);
 
     // Add glow effect
@@ -308,7 +422,7 @@ async function createSun(
     corona.name = 'sunCorona';
     mesh.add(corona);
 
-    return { mesh, glow, corona, data };
+    return { mesh, root, glow, corona, data };
 }
 
 async function createPlanet(
@@ -316,7 +430,7 @@ async function createPlanet(
     textureLoader: THREE.TextureLoader,
     name: string,
     data: PlanetData,
-    distanceScale: number
+    distanceStep: number
 ): Promise<CelestialBody> {
     const visualSize = getLogarithmicSize(data.radius);
 
@@ -333,34 +447,36 @@ async function createPlanet(
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = name;
 
-    // Initial position
+    const root = new THREE.Group();
+    root.name = `${name}Root`;
+    // Tilt the spin axis (local Y) away from ecliptic north. Orbits stay in the XZ plane.
+    root.rotation.z = THREE.MathUtils.degToRad(data.axialTilt ?? 0);
+    root.add(mesh);
+
+    // Initial position. The animation loop replaces this from `time` on the first frame.
     const angle = Math.random() * Math.PI * 2;
-    const scaledDistance = data.distanceFromSun * SCALE.DISTANCE * distanceScale;
-    mesh.position.x = Math.cos(angle) * scaledDistance;
-    mesh.position.z = Math.sin(angle) * scaledDistance;
+    const scaledDistance = planetOrbitRadius(data.distanceFromSun, distanceStep);
+    root.position.x = Math.cos(angle) * scaledDistance;
+    root.position.z = Math.sin(angle) * scaledDistance;
 
-    scene.add(mesh);
+    scene.add(root);
 
-    const body: CelestialBody = { mesh, data };
+    const body: CelestialBody = { mesh, root, data };
 
-    // Add atmosphere if applicable
+    // Atmosphere and rings share the tilt, and stay off the spinning mesh so rings do not rotate daily.
     if (data.hasAtmosphere && ATMOSPHERE_CONFIGS[name]) {
         const atmosphere = createAtmosphere(visualSize, ATMOSPHERE_CONFIGS[name]);
         atmosphere.name = `${name}Atmosphere`;
-        mesh.add(atmosphere);
+        root.add(atmosphere);
         body.atmosphere = atmosphere;
     }
 
-    // Add rings if applicable
     if (data.hasRings) {
-        let rings: THREE.Mesh;
-        if (name === 'uranus') {
-            rings = createUranusRings(visualSize);
-        } else {
-            rings = createPlanetRings(visualSize, RING_CONFIGS.saturn);
-        }
+        const rings = name === 'uranus'
+            ? createUranusRings(visualSize)
+            : createPlanetRings(visualSize, RING_CONFIGS.saturn);
         rings.name = `${name}Rings`;
-        mesh.add(rings);
+        root.add(rings);
         body.rings = rings;
     }
 
@@ -369,11 +485,13 @@ async function createPlanet(
 
 function createMoon(
     scene: THREE.Scene,
-    parentPlanet: THREE.Mesh,
+    parentRoot: THREE.Object3D,
     moonData: MoonData,
-    distanceScale: number
+    parentRadiusKm: number,
+    distanceStep: number
 ): THREE.Mesh {
-    const moonVisualSize = Math.max(getLogarithmicSize(moonData.radius) * SCALE.MOON_SCALE, 5);
+    const parentVisual = getLogarithmicSize(parentRadiusKm);
+    const moonVisualSize = getMoonVisualRadius(moonData.radius, parentRadiusKm, parentVisual);
 
     const geometry = new THREE.SphereGeometry(moonVisualSize, 16, 16);
     const material = new THREE.MeshStandardMaterial({
@@ -389,10 +507,16 @@ function createMoon(
 
     // Position relative to planet
     const moonAngle = Math.random() * Math.PI * 2;
-    const moonDistance = moonData.distance * SCALE.DISTANCE * distanceScale;
-    moon.position.x = parentPlanet.position.x + Math.cos(moonAngle) * moonDistance;
-    moon.position.z = parentPlanet.position.z + Math.sin(moonAngle) * moonDistance;
-    moon.position.y = parentPlanet.position.y;
+    const moonDistance = moonOrbitRadius(
+        moonData.distance,
+        parentRadiusKm,
+        parentVisual,
+        moonVisualSize,
+        distanceStep
+    );
+    moon.position.x = parentRoot.position.x + Math.cos(moonAngle) * moonDistance;
+    moon.position.z = parentRoot.position.z + Math.sin(moonAngle) * moonDistance;
+    moon.position.y = parentRoot.position.y;
 
     scene.add(moon);
 
@@ -413,14 +537,16 @@ export function updateOrbitalPositions(
     moons: Map<string, THREE.Mesh>,
     time: number,
     selectedPlanet: string,
-    distanceScale: number
+    distanceStep: number,
+    delta: number,
+    spinScale: number = SPIN_VISUAL_CAP
 ): void {
     // Get selected planet's theoretical position
     const selectedData = SOLAR_SYSTEM[selectedPlanet];
     let selectedPosition = new THREE.Vector3(0, 0, 0);
 
     if (selectedPlanet !== 'sun') {
-        const selectedDistance = selectedData.distanceFromSun * SCALE.DISTANCE;
+        const selectedDistance = planetOrbitRadius(selectedData.distanceFromSun, distanceStep);
         const selectedOrbitalSpeed = (2 * Math.PI) / (selectedData.orbitalPeriod * 24 * 60 * 60);
         const selectedAngle = time * selectedOrbitalSpeed;
         selectedPosition.x = Math.cos(selectedAngle) * selectedDistance;
@@ -432,43 +558,50 @@ export function updateOrbitalPositions(
         const data = body.data;
 
         if (name === 'sun') {
-            body.mesh.position.copy(selectedPosition).multiplyScalar(-1);
-            continue;
-        }
-
-        const scaledDistance = data.distanceFromSun * SCALE.DISTANCE * distanceScale;
-        const orbitalSpeed = (2 * Math.PI) / (data.orbitalPeriod * 24 * 60 * 60);
-        const angle = time * orbitalSpeed;
-
-        if (name === selectedPlanet) {
-            body.mesh.position.set(0, 0, 0);
+            body.root.position.copy(selectedPosition).multiplyScalar(-1);
         } else {
-            body.mesh.position.x = Math.cos(angle) * scaledDistance - selectedPosition.x;
-            body.mesh.position.z = Math.sin(angle) * scaledDistance - selectedPosition.z;
+            const scaledDistance = planetOrbitRadius(data.distanceFromSun, distanceStep);
+            const orbitalSpeed = (2 * Math.PI) / (data.orbitalPeriod * 24 * 60 * 60);
+            const angle = time * orbitalSpeed;
+
+            if (name === selectedPlanet) {
+                body.root.position.set(0, 0, 0);
+            } else {
+                body.root.position.x = Math.cos(angle) * scaledDistance - selectedPosition.x;
+                body.root.position.z = Math.sin(angle) * scaledDistance - selectedPosition.z;
+            }
         }
 
-        // Planet rotation (rotationPeriod is in hours)
-        // Scale factor to make rotation visible but not too fast
-        // Earth (24h) should complete ~1 rotation every few seconds visually
-        const rotationSpeed = (2 * Math.PI) / data.rotationPeriod; // radians per hour (scaled)
-        body.mesh.rotation.y += rotationSpeed * 0.002; // Balanced visual speed
+        // Spin around the tilted local axis. Negative periods (Venus, Uranus, Pluto) spin backwards.
+        // `delta` is real seconds. Pass 0 to freeze spin without stopping the render loop.
+        if (data.rotationPeriod !== 0) {
+            const rotationSpeed = (2 * Math.PI) / data.rotationPeriod;
+            body.mesh.rotation.y += rotationSpeed * spinScale * delta;
+        }
 
-        // Update moons
-        if (data.moons) {
-            for (const moonData of data.moons) {
-                const moon = moons.get(`${name}-${moonData.name}`);
-                if (!moon) continue;
+        if (!data.moons) continue;
+        const parentVisual = getLogarithmicSize(data.radius);
+        for (const moonData of data.moons) {
+            const moon = moons.get(`${name}-${moonData.name}`);
+            if (!moon) continue;
 
-                const moonOrbitalSpeed = (2 * Math.PI) / (moonData.orbitalPeriod * 24 * 60 * 60);
-                const moonAngle = time * moonOrbitalSpeed;
-                const moonDistance = moonData.distance * SCALE.DISTANCE * distanceScale;
+            const moonOrbitalSpeed = (2 * Math.PI) / (moonData.orbitalPeriod * 24 * 60 * 60);
+            const moonAngle = time * moonOrbitalSpeed;
+            const moonVisual = getMoonVisualRadius(moonData.radius, data.radius, parentVisual);
+            const moonDistance = moonOrbitRadius(
+                moonData.distance,
+                data.radius,
+                parentVisual,
+                moonVisual,
+                distanceStep
+            );
 
-                moon.position.x = body.mesh.position.x + Math.cos(moonAngle) * moonDistance;
-                moon.position.z = body.mesh.position.z + Math.sin(moonAngle) * moonDistance;
-                moon.position.y = body.mesh.position.y;
+            moon.position.x = body.root.position.x + Math.cos(moonAngle) * moonDistance;
+            moon.position.z = body.root.position.z + Math.sin(moonAngle) * moonDistance;
+            moon.position.y = body.root.position.y;
 
-                moon.rotation.y += 0.01; // Slow moon rotation for visual
-            }
+            // Tour stop keeps the previous 0.6 rad/s. Slower clocks scale it down with the spin cap.
+            moon.rotation.y += 0.6 * (spinScale / SPIN_VISUAL_CAP) * delta;
         }
     }
 }

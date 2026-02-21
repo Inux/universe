@@ -4,15 +4,16 @@
     <div class="minimap-player">
       <div
         class="player-icon"
-        :style="{ transform: `rotate(${180 - headingDeg}deg)` }"
+        :style="{ transform: `rotate(${mapRotation}deg)` }"
       ></div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import * as THREE from 'three';
+import { radialUp, tangentFrame } from '../three/sphereFrame';
 
 interface MinimapProps {
   visible: boolean;
@@ -30,6 +31,17 @@ const props = withDefaults(defineProps<MinimapProps>(), {
 const canvas = ref<HTMLCanvasElement | null>(null);
 const size = 200; // Minimap size in pixels
 const viewRadius = 50; // World units visible on minimap
+
+const mapUp = new THREE.Vector3();
+const mapEast = new THREE.Vector3();
+const mapNorth = new THREE.Vector3();
+const mapDir = new THREE.Vector3();
+
+const mapRotation = computed(() => {
+  const spherical = props.terrainMesh?.userData?.spherical;
+  // Sphere map is north-up, and heading 0 faces north. The flat map drew +Z downward.
+  return spherical ? props.headingDeg : 180 - props.headingDeg;
+});
 
 let animationId: number | null = null;
 let lastDrawTime = 0;
@@ -50,8 +62,14 @@ function drawMinimap() {
   }
   const imgData = minimapImageData.data;
 
-  // Get terrain data
   const terrainData = props.terrainMesh.userData;
+  if (terrainData.spherical) {
+    drawSpherePixels(imgData, terrainData);
+    paintMinimap(ctx);
+    return;
+  }
+
+  // Get terrain data
   const minimapColors = terrainData.minimapColors as Uint8Array | undefined;
   const minimapRes = (terrainData.minimapResolution as number) || 256;
   const terrainSize = terrainData.terrainSize as number;
@@ -107,6 +125,49 @@ function drawMinimap() {
     }
   }
 
+  paintMinimap(ctx);
+}
+
+function drawSpherePixels(imgData: Uint8ClampedArray, terrainData: Record<string, unknown>) {
+  const minimapColors = terrainData.minimapColors as Uint8Array | undefined;
+  const mw = (terrainData.minimapWidth as number) || 360;
+  const mh = (terrainData.minimapHeight as number) || 180;
+  const planetR = (terrainData.planetRadius as number) || 480;
+  if (!minimapColors || minimapColors.length === 0) return;
+
+  radialUp(mapUp, props.playerPosition);
+  tangentFrame(mapUp, mapEast, mapNorth);
+
+  const resolution = size;
+  const step = (viewRadius * 2) / resolution;
+  for (let pz = 0; pz < resolution; pz++) {
+    const northOff = viewRadius - pz * step;
+    for (let px = 0; px < resolution; px++) {
+      const eastOff = -viewRadius + px * step;
+      mapDir.copy(mapUp).multiplyScalar(planetR);
+      mapDir.addScaledVector(mapEast, eastOff);
+      mapDir.addScaledVector(mapNorth, northOff);
+      mapDir.normalize();
+
+      const lat = Math.asin(Math.max(-1, Math.min(1, mapDir.y)));
+      const lon = Math.atan2(mapDir.x, mapDir.z);
+      let u = lon / (Math.PI * 2) + 0.5;
+      u = u - Math.floor(u);
+      const v = Math.max(0, Math.min(0.999, 0.5 - lat / Math.PI));
+      const ix = Math.min(mw - 1, Math.floor(u * mw));
+      const iy = Math.min(mh - 1, Math.floor(v * mh));
+      const colorIdx = (iy * mw + ix) * 3;
+      const idx = (pz * resolution + px) * 4;
+      imgData[idx] = minimapColors[colorIdx] ?? 40;
+      imgData[idx + 1] = minimapColors[colorIdx + 1] ?? 40;
+      imgData[idx + 2] = minimapColors[colorIdx + 2] ?? 40;
+      imgData[idx + 3] = 200;
+    }
+  }
+}
+
+function paintMinimap(ctx: CanvasRenderingContext2D) {
+  if (!minimapImageData) return;
   // Single putImageData call replaces 2500 fillRect calls
   ctx.putImageData(minimapImageData, 0, 0);
 
@@ -196,6 +257,17 @@ watch(() => props.visible, (visible) => {
 
 canvas {
   display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 720px) {
+  .minimap {
+    width: 140px;
+    height: 140px;
+    right: 10px;
+    bottom: 12px;
+  }
 }
 
 .minimap-player {

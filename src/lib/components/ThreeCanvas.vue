@@ -34,7 +34,10 @@ const {
   resetView,
   setLabelsVisible,
   pause,
-  resume
+  resume,
+  setTimeRunning,
+  setTimeStep,
+  setDistanceStep
 } = useThreeScene(canvasContainer, {
   onPlanetSelect: (planetName) => emit('planetSelect', planetName),
   onBackgroundClick: () => emit('backgroundClick')
@@ -53,7 +56,10 @@ defineExpose({
   selectPlanet,
   resetView,
   pause,
-  resume
+  resume,
+  setTimeRunning,
+  setTimeStep,
+  setDistanceStep
 });
 </script>
 

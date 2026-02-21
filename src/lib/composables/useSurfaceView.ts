@@ -27,6 +27,23 @@ import {
     BIOMES,
     type TerrainConfig
 } from '../three/terrain';
+import {
+    PREGENERATED_TERRAINS,
+    canWalkSurface,
+    defaultExploreMode,
+    surfaceKind,
+    type ExploreMode,
+} from '../three/exploration';
+import {
+    applySphereLook,
+    headingDegrees,
+    lookFromHeading,
+    projectHeading,
+    radialUp,
+    tangentFrame,
+    yawHeading,
+} from '../three/sphereFrame';
+import { RELIEF_CANDIDATES, createMappedSurface } from '../three/mappedSurface';
 
 export interface UseSurfaceViewOptions {
     onExit?: () => void;
@@ -39,6 +56,15 @@ export function useSurfaceView(
     const isActive = ref(false);
     const currentPlanet = ref<string | null>(null);
     const isLoading = ref(false);
+    const exploreMode = ref<ExploreMode>('walk');
+    const canWalk = ref(true);
+    const altitude = ref(0);
+
+    const WALK_EYE = 2;
+    const FLY_CLEARANCE = 8;
+    const FLY_CRUISE = 48;
+    const FLY_CEILING = 160;
+    const FLY_SPEED = 70;
 
     const scene = shallowRef<THREE.Scene | null>(null);
     const camera = shallowRef<THREE.PerspectiveCamera | null>(null);
@@ -47,6 +73,7 @@ export function useSurfaceView(
 
     let animationId: number | null = null;
     let terrainMesh: THREE.Mesh | null = null;
+    let updateMapped: ((cameraPosition: THREE.Vector3) => void) | null = null;
     let terrainChunkGroup: THREE.Group | null = null; // For chunked terrain system
     let terrainLOD: THREE.LOD | null = null;
     let waterMesh: THREE.Mesh | null = null;
@@ -57,6 +84,7 @@ export function useSurfaceView(
     let dustSystem: THREE.Points | null = null;
     let propsGroup: THREE.Group | null = null;
     let composer: EffectComposer | null = null;
+    let ssaoPass: SSAOPass | null = null;
 
     // Cached scene references (avoid per-frame searches)
     let hemiLight: THREE.HemisphereLight | null = null;
@@ -65,17 +93,18 @@ export function useSurfaceView(
     const sunDirection = new THREE.Vector3();
 
     // Day/night cycle
-    let dayTime = 0.25; // Start at sunrise (0-1, 0.5 = noon)
+    let dayTime = 0.42; // Mid-morning, so the surface is lit on arrival (0.5 = noon)
     const dayDuration = 120; // Seconds for a full day cycle
 
-    // Terrain settings - use flat terrain for GTA-style experience
-    const useSphericalTerrain = ref(false);
-    const planetRadius = 100; // Radius of the walkable planet sphere (if spherical)
-    let terrainSize = 1000; // Size of flat terrain (updated when terrain is created)
+    // Closed planet. Circumference is about 3016, so a walk laps in a few minutes.
+    // The flat branch remains in this file and is not what enter() shows.
+    const WALK_PLANET_RADIUS = 480;
+    const useSphericalTerrain = ref(true);
+    let terrainSize = 1000; // Size of the unused flat patch
 
     // Player state for surface exploration
     const playerPosition = ref(new THREE.Vector3(0, 5, 0));
-    const headingDeg = ref(0); // 0-360, 0 = north (+Z), increases clockwise
+    const headingDeg = ref(0); // 0 = north, clockwise toward east
     const timeOfDay = ref(0); // 0-1 normalized day cycle
     const playerVelocity = new THREE.Vector3();
     const moveState = {
@@ -89,6 +118,7 @@ export function useSurfaceView(
         lookDown: false,
         lookLeft: false,
         lookRight: false,
+        descend: false,
     };
 
     let currentGravity = 9.81;
@@ -114,19 +144,22 @@ export function useSurfaceView(
     const upVector = new THREE.Vector3(0, 1, 0);
     const forwardVector = new THREE.Vector3(0, 0, -1);
 
-    // Pre-allocated vectors for spherical physics (reused every frame)
+    // Sphere frame. Heading is parallel-transported; do not rebuild it from world up.
     const sphereUp = new THREE.Vector3();
-    const sphereCameraDir = new THREE.Vector3();
-    const sphereForward = new THREE.Vector3();
     const sphereRight = new THREE.Vector3();
     const sphereMoveDir = new THREE.Vector3();
-    const sphereNewUp = new THREE.Vector3();
-    const sphereWorldUp = new THREE.Vector3(0, 1, 0);
-    const sphereAxis = new THREE.Vector3();
-    const sphereQuat = new THREE.Quaternion();
+    const sphereHeading = new THREE.Vector3(0, 1, 0);
+    const sphereEast = new THREE.Vector3();
+    const sphereNorth = new THREE.Vector3();
+    const sphereLook = new THREE.Vector3();
+    let lastAppliedYaw = 0;
+    let radialVelocity = 0;
 
     // Pre-allocated vector for flat terrain forward direction (reused every frame)
     const flatForwardDir = new THREE.Vector3();
+    const flyForward = new THREE.Vector3();
+    const flyFlat = new THREE.Vector3();
+    const flyRight = new THREE.Vector3();
 
     // Performance and physics state
     let lastTime = 0;
@@ -157,9 +190,13 @@ export function useSurfaceView(
         // This ensures yaw always rotates around world Y axis
         camera.value.rotation.order = 'YXZ';
 
-        renderer.value = new THREE.WebGLRenderer({ antialias: true });
+        // The composer resolves its own target, so canvas MSAA would be unused.
+        renderer.value = new THREE.WebGLRenderer({
+            antialias: false,
+            powerPreference: 'high-performance',
+        });
         renderer.value.setSize(width, height);
-        renderer.value.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.value.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         renderer.value.shadowMap.enabled = true;
         renderer.value.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -204,8 +241,8 @@ export function useSurfaceView(
         sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
         sunLight.position.set(100, 100, 50);
         sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
         sunLight.shadow.camera.near = 0.5;
         sunLight.shadow.camera.far = 500;
         sunLight.shadow.camera.left = -50;
@@ -223,16 +260,25 @@ export function useSurfaceView(
         hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.4);
         scene.value.add(hemiLight);
 
-        // Set up SSAO post-processing for contact shadows
-        composer = new EffectComposer(renderer.value);
+        // Set up SSAO post-processing for contact shadows.
+        // Half-resolution SSAO and a 16-sample kernel: the full-res 32-tap pass
+        // was redrawing the scene several times per frame.
+        const beautyTarget = new THREE.WebGLRenderTarget(width, height, { samples: 2 });
+        composer = new EffectComposer(renderer.value, beautyTarget);
         const renderPass = new RenderPass(scene.value, camera.value);
         composer.addPass(renderPass);
 
-        const ssaoPass = new SSAOPass(scene.value, camera.value, width, height);
-        ssaoPass.kernelRadius = 12;
-        ssaoPass.minDistance = 0.001;
-        ssaoPass.maxDistance = 0.15;
-        (ssaoPass as any).output = SSAOPass.OUTPUT.Default;
+        ssaoPass = new SSAOPass(
+            scene.value,
+            camera.value,
+            Math.max(1, Math.floor(width / 2)),
+            Math.max(1, Math.floor(height / 2)),
+            16
+        );
+        ssaoPass.kernelRadius = 8;
+        ssaoPass.minDistance = 0.002;
+        ssaoPass.maxDistance = 0.12;
+        ssaoPass.output = SSAOPass.OUTPUT.Default;
         composer.addPass(ssaoPass);
 
         const outputPass = new OutputPass();
@@ -250,9 +296,12 @@ export function useSurfaceView(
         // Clear previous terrain
         if (terrainMesh) {
             scene.value.remove(terrainMesh);
+            const release = terrainMesh.userData.disposeMapped as (() => void) | undefined;
+            release?.();
             terrainMesh.geometry.dispose();
             (terrainMesh.material as THREE.Material).dispose();
             terrainMesh = null;
+            updateMapped = null;
         }
         if (waterMesh) {
             scene.value.remove(waterMesh);
@@ -294,41 +343,51 @@ export function useSurfaceView(
 
         const config = TERRAIN_CONFIGS[planetName] || TERRAIN_CONFIGS.earth;
         currentGravity = config.gravity;
+        const kind = surfaceKind(planetName);
 
         if (useSphericalTerrain.value) {
-            // Create spherical terrain (walkable planet)
-            terrainMesh = createSphericalTerrain(planetName, planetRadius, 128);
-            scene.value.add(terrainMesh);
+            const mapped = RELIEF_CANDIDATES.has(planetName)
+                ? await createMappedSurface(planetName, WALK_PLANET_RADIUS)
+                : null;
+            if (mapped) {
+                terrainMesh = mapped.mesh;
+                scene.value.add(terrainMesh);
+                waterMesh = mapped.water;
+                if (waterMesh) scene.value.add(waterMesh);
+                propsGroup = mapped.scatter;
+                if (propsGroup) scene.value.add(propsGroup);
+                updateMapped = mapped.update;
+                if (camera.value) placeOnSphere(mapped.spawnDir);
+            } else {
+                terrainMesh = createSphericalTerrain(planetName, WALK_PLANET_RADIUS, 256, 128);
+                scene.value.add(terrainMesh);
 
-            // Create spherical water if applicable
-            waterMesh = createSphericalWater(planetRadius, config);
-            if (waterMesh) {
-                scene.value.add(waterMesh);
-            }
+                waterMesh = createSphericalWater(WALK_PLANET_RADIUS, config);
+                if (waterMesh) {
+                    scene.value.add(waterMesh);
+                }
 
-            // Position camera on the surface
-            if (camera.value) {
-                const startHeight = planetRadius + 2; // Eye height above surface
-                camera.value.position.set(0, startHeight, 0);
-                camera.value.lookAt(0, startHeight, 10);
-                cameraYaw = 0;
-                cameraPitch = 0;
+                if (camera.value && terrainMesh) {
+                    placeOnSphere(findSphereSpawn(terrainMesh));
+                }
             }
         } else {
             // Load pre-generated terrain (Phase 7.7)
             terrainSize = 1000; // Terrain size
 
-            try {
-                // Load pre-generated high-quality terrain
-                terrainMesh = await createTerrainFromPreGenerated(planetName, terrainSize);
-                terrainMesh.castShadow = true;
-                terrainMesh.receiveShadow = true;
-                scene.value.add(terrainMesh);
-            } catch (error) {
-                console.warn(`Failed to load pre-generated terrain for ${planetName}, falling back to runtime generation:`, error);
-                // Fallback to runtime generation
+            if (PREGENERATED_TERRAINS.has(planetName)) {
+                try {
+                    terrainMesh = await createTerrainFromPreGenerated(planetName, terrainSize);
+                    terrainMesh.castShadow = false;
+                    terrainMesh.receiveShadow = true;
+                    scene.value.add(terrainMesh);
+                } catch (error) {
+                    console.warn(`Failed to load pre-generated terrain for ${planetName}, falling back to runtime generation:`, error);
+                }
+            }
+            if (!terrainMesh) {
                 terrainMesh = createTerrainMesh(planetName, terrainSize, 256, false);
-                terrainMesh.castShadow = true;
+                terrainMesh.castShadow = false;
                 terrainMesh.receiveShadow = true;
                 scene.value.add(terrainMesh);
             }
@@ -339,14 +398,10 @@ export function useSurfaceView(
                 scene.value.add(waterMesh);
             }
 
-            // Reset camera position for flat terrain - standing on ground
+            // Walk starts on dry ground. Fly starts above that same point, looking down.
             if (camera.value && terrainMesh) {
-                const startHeight = getTerrainHeight(terrainMesh, 0, 0) + 2;
-                camera.value.position.set(0, startHeight, 0);
-                camera.value.up.set(0, 1, 0);
-                camera.value.lookAt(0, startHeight, -10);
-                cameraYaw = 0;
-                cameraPitch = 0;
+                const waterY = waterMesh ? waterMesh.position.y : null;
+                placeExplorer(findDrySpawn(terrainMesh, waterY));
             } else if (camera.value) {
                 camera.value.position.set(0, 20, 0);
                 camera.value.up.set(0, 1, 0);
@@ -361,19 +416,26 @@ export function useSurfaceView(
         // creating a sense of depth and scale (Rayleigh scattering approximation)
         if (scene.value) {
             if (config.atmosphereColor) {
-                // Mix atmosphere color with a blue tint for Rayleigh-like effect
-                const fogColor = config.atmosphereColor.clone().multiplyScalar(0.4);
-                const blueShift = new THREE.Color(0.5, 0.6, 0.85);
-                fogColor.lerp(blueShift, 0.3); // 30% blue shift for aerial perspective
-                scene.value.fog = new THREE.FogExp2(fogColor.getHex(), 0.0016);
+                const fogColor = config.atmosphereColor.clone();
+                if (kind === 'ground') {
+                    // Rayleigh tint: distant ground shifts toward blue.
+                    fogColor.multiplyScalar(0.4);
+                    fogColor.lerp(new THREE.Color(0.5, 0.6, 0.85), 0.3);
+                    scene.value.fog = new THREE.FogExp2(fogColor.getHex(), 0.0016);
+                } else if (kind === 'photosphere') {
+                    fogColor.multiplyScalar(0.55);
+                    scene.value.fog = new THREE.FogExp2(fogColor.getHex(), 0.0024);
+                } else {
+                    fogColor.multiplyScalar(0.45);
+                    scene.value.fog = new THREE.FogExp2(fogColor.getHex(), 0.0018);
+                }
             } else {
-                // No atmosphere = no fog, just darkness
                 scene.value.fog = null;
             }
         }
 
-        // Mars dust (simple particle field)
-        if (planetName === 'mars' && scene.value) {
+        // Mars dust is a flat disk around the origin. On a sphere that is the planet center.
+        if (planetName === 'mars' && scene.value && !useSphericalTerrain.value) {
             const dustCount = 1500;
             const positions = new Float32Array(dustCount * 3);
             for (let i = 0; i < dustCount; i++) {
@@ -398,7 +460,8 @@ export function useSurfaceView(
 
         // Props: biome-specific vegetation and details (using InstancedMesh for performance)
         // Uses Poisson disk sampling for natural spacing and slope-based filtering
-        if (scene.value && terrainMesh) {
+        // Rocks and plants sit on solid ground. A cloud deck and the photosphere stay empty.
+        if (scene.value && terrainMesh && kind === 'ground' && !useSphericalTerrain.value) {
             propsGroup = new THREE.Group();
             scene.value.add(propsGroup);
             const size = (terrainMesh.userData.terrainSize as number) ?? 500;
@@ -975,7 +1038,7 @@ export function useSurfaceView(
 
         // Create sky dome with day/night support (much larger to cover horizon)
         // Sky dome should be close to camera far plane (5000) but not too close
-        const skyRadius = useSphericalTerrain.value ? planetRadius * 8 : 3500;
+        const skyRadius = useSphericalTerrain.value ? WALK_PLANET_RADIUS * 6 : 3500;
         skyDome = createSkyDome(config, skyRadius);
         skyDome.renderOrder = -2; // Render first (furthest back)
         scene.value.add(skyDome);
@@ -991,8 +1054,8 @@ export function useSurfaceView(
             hemiLight.groundColor.copy(config.baseColor);
         }
 
-        // Reset day time to sunrise
-        dayTime = 0.25;
+        // Mid-morning. A dawn start left cloud decks in the dark.
+        dayTime = 0.42;
 
         isLoading.value = false;
     }
@@ -1005,6 +1068,24 @@ export function useSurfaceView(
 
         const config = TERRAIN_CONFIGS[currentPlanet.value || 'earth'] || TERRAIN_CONFIGS.earth;
 
+        if (config.selfLit) {
+            // On the photosphere the light does not set.
+            sunDirection.set(0.15, 0.95, 0.2).normalize();
+            placeSunLight();
+            sunLight.intensity = 1.4;
+            sunLight.color.setHex(0xfff4dd);
+            if (renderer.value) renderer.value.toneMappingExposure = 1.05;
+            updateSkyDome(skyDome, sunDirection, true);
+            if (camera.value) skyDome.position.copy(camera.value.position);
+            if (starfield) {
+                updateStarfield(starfield, 0, 1);
+                if (camera.value) starfield.position.copy(camera.value.position);
+            }
+            if (hemiLight) hemiLight.intensity = 0.55;
+            timeOfDay.value = 0.5;
+            return;
+        }
+
         // Advance time
         dayTime += delta / dayDuration;
         if (dayTime > 1) dayTime -= 1;
@@ -1016,8 +1097,9 @@ export function useSurfaceView(
 
         sunDirection.set(sunHorizontal, sunHeight, 0.3).normalize();
 
-        // Update sun light position (reuse sunDirection, scale in-place then restore)
-        sunLight.position.copy(sunDirection).multiplyScalar(200);
+        // On the sphere the sun stays a world direction, offset from the player,
+        // so walking around the planet changes the local time of day.
+        placeSunLight();
 
         // Update sun intensity based on height
         const intensity = Math.max(0, sunHeight) * 1.5 + 0.1;
@@ -1087,6 +1169,7 @@ export function useSurfaceView(
 
         // Update physics and movement
         updatePhysics(delta);
+        if (updateMapped && camera.value) updateMapped(camera.value.position);
 
         // Animate dust particles
         if (dustSystem && camera.value) {
@@ -1107,176 +1190,202 @@ export function useSurfaceView(
         }
     }
 
+    function placeSunLight() {
+        if (!sunLight) return;
+        if (useSphericalTerrain.value && camera.value) {
+            sunLight.position.copy(camera.value.position).addScaledVector(sunDirection, 200);
+        } else {
+            sunLight.position.copy(sunDirection).multiplyScalar(200);
+        }
+    }
+
+    function groundRadius(dir: THREE.Vector3): number {
+        const radiusAt = terrainMesh?.userData.radiusAt as ((d: THREE.Vector3) => number) | undefined;
+        if (!radiusAt) return WALK_PLANET_RADIUS;
+        return radiusAt(dir);
+    }
+
+    function updateSpherePhysics(delta: number) {
+        const cam = camera.value;
+        if (!cam) return;
+        const flying = exploreMode.value === 'fly';
+
+        const lookSpeed = 2.0;
+        if (moveState.lookLeft) cameraYaw += lookSpeed * delta;
+        if (moveState.lookRight) cameraYaw -= lookSpeed * delta;
+        if (moveState.lookUp) cameraPitch += lookSpeed * delta;
+        if (moveState.lookDown) cameraPitch -= lookSpeed * delta;
+        const maxPitch = Math.PI / 2.5;
+        cameraPitch = Math.max(-maxPitch, Math.min(maxPitch, cameraPitch));
+
+        radialUp(sphereUp, cam.position);
+        projectHeading(sphereHeading, sphereUp);
+        const dYaw = cameraYaw - lastAppliedYaw;
+        if (dYaw !== 0) {
+            yawHeading(sphereHeading, sphereUp, dYaw, sphereRight);
+            lastAppliedYaw = cameraYaw;
+        }
+        // right = heading × up. Facing north at +Z, right is +X.
+        sphereRight.crossVectors(sphereHeading, sphereUp).normalize();
+        lookFromHeading(sphereLook, sphereHeading, sphereUp, cameraPitch);
+
+        sphereMoveDir.set(0, 0, 0);
+        if (flying) {
+            const speed = FLY_SPEED * (moveState.sprint ? 2.2 : 1);
+            if (moveState.forward) sphereMoveDir.add(sphereLook);
+            if (moveState.backward) sphereMoveDir.sub(sphereLook);
+            if (moveState.left) sphereMoveDir.sub(sphereRight);
+            if (moveState.right) sphereMoveDir.add(sphereRight);
+            if (moveState.jump) sphereMoveDir.add(sphereUp);
+            if (moveState.descend) sphereMoveDir.sub(sphereUp);
+            if (sphereMoveDir.lengthSq() > 0) {
+                sphereMoveDir.normalize().multiplyScalar(speed * delta);
+                cam.position.add(sphereMoveDir);
+            }
+            radialUp(sphereUp, cam.position);
+            const ground = groundRadius(sphereUp);
+            let radius = cam.position.length();
+            const minR = ground + FLY_CLEARANCE;
+            const maxR = ground + FLY_CEILING;
+            if (radius < minR) radius = minR;
+            else if (radius > maxR) radius = maxR;
+            cam.position.copy(sphereUp).multiplyScalar(radius);
+            radialVelocity = 0;
+            isGrounded = false;
+            altitude.value = radius - ground;
+        } else {
+            const speed = 18 * (moveState.sprint ? 2 : 1);
+            if (moveState.forward) sphereMoveDir.add(sphereHeading);
+            if (moveState.backward) sphereMoveDir.sub(sphereHeading);
+            if (moveState.left) sphereMoveDir.sub(sphereRight);
+            if (moveState.right) sphereMoveDir.add(sphereRight);
+            if (sphereMoveDir.lengthSq() > 0) {
+                sphereMoveDir.normalize().multiplyScalar(speed * delta);
+                cam.position.add(sphereMoveDir);
+            }
+
+            if (moveState.jump && isGrounded) {
+                radialVelocity = Math.sqrt(2 * currentGravity * 6);
+                isGrounded = false;
+                moveState.jump = false;
+            }
+            if (!isGrounded) {
+                radialVelocity -= currentGravity * 5 * delta;
+                if (radialVelocity < -40) radialVelocity = -40;
+            }
+
+            radialUp(sphereUp, cam.position);
+            let radius = cam.position.length() + radialVelocity * delta;
+            const ground = groundRadius(sphereUp);
+            const floor = ground + WALK_EYE;
+            // Snap into the ground, and stick across a small downhill gap so a slope is not a jump.
+            if (radius <= floor || (radialVelocity <= 0 && radius < floor + 0.45)) {
+                radius = floor;
+                radialVelocity = 0;
+                isGrounded = true;
+            } else {
+                isGrounded = false;
+            }
+            cam.position.copy(sphereUp).multiplyScalar(radius);
+            altitude.value = radius - ground;
+        }
+
+        projectHeading(sphereHeading, sphereUp);
+        lookFromHeading(sphereLook, sphereHeading, sphereUp, cameraPitch);
+        applySphereLook(cam, sphereLook, sphereUp);
+
+        playerPosition.value.copy(cam.position);
+        tangentFrame(sphereUp, sphereEast, sphereNorth);
+        headingDeg.value = headingDegrees(sphereHeading, sphereNorth, sphereEast);
+    }
+
     function updatePhysics(delta: number) {
         if (!camera.value) return;
+
+        if (useSphericalTerrain.value) {
+            updateSpherePhysics(delta);
+            return;
+        }
 
         const moveSpeed = 18; // Walking speed (faster)
         const sprintMultiplier = moveState.sprint ? 2 : 1;
 
-        if (useSphericalTerrain.value) {
-            // SPHERICAL TERRAIN MOVEMENT
-            // Get the "up" direction (away from planet center)
-            sphereUp.copy(camera.value.position).normalize();
+        {
+            const flying = exploreMode.value === 'fly';
+            const eyeHeight = WALK_EYE;
 
-            // Get camera forward direction projected onto the tangent plane
-            camera.value.getWorldDirection(sphereCameraDir);
+            if (!flying) {
+                // Camera.getWorldDirection is the look direction (−Z). Flat it for walking.
+                camera.value.getWorldDirection(tempVector3);
+                tempVector3.y = 0;
+                tempVector3.normalize();
+                flatForwardDir.copy(tempVector3);
+                // look × up = right. look (0,0,−1) → right (1,0,0).
+                tempVector3b.crossVectors(flatForwardDir, upVector).normalize();
 
-            // Project forward onto tangent plane (remove the "up" component)
-            const dotVal = sphereCameraDir.dot(sphereUp);
-            sphereForward.copy(sphereCameraDir).addScaledVector(sphereUp, -dotVal).normalize();
+                const moveDirection = tempVector3;
+                moveDirection.set(0, 0, 0);
+                if (moveState.forward) moveDirection.add(flatForwardDir);
+                if (moveState.backward) moveDirection.sub(flatForwardDir);
+                if (moveState.left) moveDirection.sub(tempVector3b);
+                if (moveState.right) moveDirection.add(tempVector3b);
 
-            // Right is perpendicular to up and forward
-            sphereRight.crossVectors(sphereForward, sphereUp).normalize();
-
-            // Calculate movement on the tangent plane
-            sphereMoveDir.set(0, 0, 0);
-            if (moveState.forward) sphereMoveDir.add(sphereForward);
-            if (moveState.backward) sphereMoveDir.sub(sphereForward);
-            if (moveState.left) sphereMoveDir.sub(sphereRight);
-            if (moveState.right) sphereMoveDir.add(sphereRight);
-
-            if (sphereMoveDir.length() > 0) {
-                sphereMoveDir.normalize().multiplyScalar(moveSpeed * sprintMultiplier * delta);
-                camera.value.position.add(sphereMoveDir);
-
-                // Re-normalize to stay on sphere surface
-                const groundHeight = planetRadius + 2;
-                camera.value.position.normalize().multiplyScalar(groundHeight);
+                if (moveDirection.length() > 0) {
+                    moveDirection.normalize();
+                    const movement = moveDirection.multiplyScalar(moveSpeed * sprintMultiplier * delta);
+                    camera.value.position.add(movement);
+                }
+                wrapFlatPosition();
             }
 
-            // Keep camera "up" aligned with surface normal
-            sphereNewUp.copy(camera.value.position).normalize();
-            sphereWorldUp.set(0, 1, 0).applyQuaternion(camera.value.quaternion);
+            // Mouse look writes cameraYaw/cameraPitch. Arrows do the same when the pointer is free.
+            const lookSpeed = 2.0;
+            if (moveState.lookLeft) cameraYaw += lookSpeed * delta;
+            if (moveState.lookRight) cameraYaw -= lookSpeed * delta;
+            if (moveState.lookUp) cameraPitch += lookSpeed * delta;
+            if (moveState.lookDown) cameraPitch -= lookSpeed * delta;
 
-            // Smoothly rotate camera to align with new up
-            if (sphereWorldUp.dot(sphereNewUp) < 0.9999) {
-                sphereAxis.crossVectors(sphereWorldUp, sphereNewUp).normalize();
-                const angle = Math.acos(Math.min(1, sphereWorldUp.dot(sphereNewUp)));
-                const smoothAngle = angle * 0.1; // Smooth rotation
-
-                sphereQuat.setFromAxisAngle(sphereAxis, smoothAngle);
-                camera.value.quaternion.premultiply(sphereQuat);
-            }
-
-            // Always grounded on sphere (no jumping for now on spherical)
-            isGrounded = true;
-
-        } else {
-            // FLAT TERRAIN MOVEMENT WITH INFINITE WRAPPING
-            const eyeHeight = 2; // Player eye height above ground
-
-            // Get camera forward direction (reuse temp vector)
-            camera.value.getWorldDirection(tempVector3);
-            tempVector3.y = 0; // Remove vertical component for ground movement
-            tempVector3.normalize();
-
-            // Store forward direction in pre-allocated vector before reusing tempVector3
-            flatForwardDir.copy(tempVector3);
-
-            // Calculate right vector (use tempVector3b)
-            tempVector3b.crossVectors(flatForwardDir, upVector).normalize();
-
-            // Calculate movement direction (reuse tempVector3)
-            const moveDirection = tempVector3; // Reuse tempVector3
-            moveDirection.set(0, 0, 0); // Reset
-
-            if (moveState.forward) moveDirection.add(flatForwardDir);
-            if (moveState.backward) moveDirection.sub(flatForwardDir);
-            if (moveState.left) moveDirection.sub(tempVector3b); // Left = subtract right vector
-            if (moveState.right) moveDirection.add(tempVector3b); // Right = add right vector
-
-            if (moveDirection.length() > 0) {
-                moveDirection.normalize();
-                const movement = moveDirection.multiplyScalar(moveSpeed * sprintMultiplier * delta);
-                camera.value.position.add(movement);
-            }
-
-            // Wrap position for infinite terrain feel
-            // TODO Phase 7.7: Replace with proper chunk system using pre-generated terrain
-            const halfSize = terrainSize / 2;
-            if (camera.value.position.x > halfSize) {
-                camera.value.position.x -= terrainSize;
-            } else if (camera.value.position.x < -halfSize) {
-                camera.value.position.x += terrainSize;
-            }
-            if (camera.value.position.z > halfSize) {
-                camera.value.position.z -= terrainSize;
-            } else if (camera.value.position.z < -halfSize) {
-                camera.value.position.z += terrainSize;
-            }
-
-            // FIRST-PERSON CAMERA CONTROLS
-            // Mouse look is handled in mousemove event (updates cameraYaw/cameraPitch directly)
-            // Keyboard look for when mouse is not available
-            const lookSpeed = 2.0; // radians per second for keyboard
-
-            // Keyboard look controls (arrow keys)
-            if (moveState.lookLeft) {
-                cameraYaw += lookSpeed * delta;
-            }
-            if (moveState.lookRight) {
-                cameraYaw -= lookSpeed * delta;
-            }
-            if (moveState.lookUp) {
-                cameraPitch += lookSpeed * delta;
-            }
-            if (moveState.lookDown) {
-                cameraPitch -= lookSpeed * delta;
-            }
-
-            // Clamp pitch to prevent camera flipping (same limits as mouse look)
-            const maxPitch = Math.PI / 2.5; // ~72 degrees
-            const minPitch = -Math.PI / 2.5; // ~-72 degrees
+            const maxPitch = Math.PI / 2.5;
+            const minPitch = -Math.PI / 2.5;
             cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch));
-
-            // Apply rotation with YXZ order (yaw first, then pitch, then roll)
-            // This prevents gimbal lock - yaw always rotates around world Y axis
             camera.value.rotation.set(cameraPitch, cameraYaw, 0, 'YXZ');
 
-            // JUMPING LOGIC FOR FLAT TERRAIN
-            // Jump - must be checked BEFORE applying gravity
-            if (moveState.jump && isGrounded) {
-                playerVelocity.y = Math.sqrt(2 * currentGravity * 6); // Higher jump
-                isGrounded = false;
-                moveState.jump = false; // Consume the jump
-            }
-
-            // Apply gravity when not grounded - stronger but balanced
-            if (!isGrounded) {
-                playerVelocity.y -= currentGravity * 5 * delta;
-                // Clamp falling speed to prevent tunneling through terrain
-                playerVelocity.y = Math.max(playerVelocity.y, -40);
-            }
-
-            // Apply vertical velocity
-            camera.value.position.y += playerVelocity.y * delta;
-
-            // TERRAIN COLLISION: O(1) height lookup (no raycasting)
-            let groundHeight = 0;
-            if (terrainMesh) {
-                groundHeight = getTerrainHeight(terrainMesh, camera.value.position.x, camera.value.position.z);
-            }
-            const targetY = groundHeight + eyeHeight;
-
-            // Ground collision with smooth landing
-            if (camera.value.position.y < targetY) {
-                // Smooth landing interpolation when hitting ground
-                const landingSpeed = 0.3; // Higher = faster landing snap
-                camera.value.position.y = THREE.MathUtils.lerp(
-                    camera.value.position.y,
-                    targetY,
-                    landingSpeed
-                );
-
-                // Snap if very close to avoid float precision issues
-                if (Math.abs(camera.value.position.y - targetY) < 0.01) {
-                    camera.value.position.y = targetY;
+            if (flying) {
+                flyStep(delta);
+            } else {
+                if (moveState.jump && isGrounded) {
+                    playerVelocity.y = Math.sqrt(2 * currentGravity * 6);
+                    isGrounded = false;
+                    moveState.jump = false;
                 }
 
-                playerVelocity.y = 0;
-                isGrounded = true;
-            } else if (camera.value.position.y > targetY + 0.5) {
-                isGrounded = false;
+                if (!isGrounded) {
+                    playerVelocity.y -= currentGravity * 5 * delta;
+                    playerVelocity.y = Math.max(playerVelocity.y, -40);
+                }
+
+                camera.value.position.y += playerVelocity.y * delta;
+
+                const groundHeight = terrainMesh
+                    ? getTerrainHeight(terrainMesh, camera.value.position.x, camera.value.position.z)
+                    : 0;
+                const targetY = groundHeight + eyeHeight;
+
+                if (camera.value.position.y < targetY) {
+                    const landingSpeed = 0.3;
+                    camera.value.position.y = THREE.MathUtils.lerp(
+                        camera.value.position.y,
+                        targetY,
+                        landingSpeed
+                    );
+                    if (Math.abs(camera.value.position.y - targetY) < 0.01) {
+                        camera.value.position.y = targetY;
+                    }
+                    playerVelocity.y = 0;
+                    isGrounded = true;
+                } else if (camera.value.position.y > targetY + 0.5) {
+                    isGrounded = false;
+                }
             }
         }
 
@@ -1293,7 +1402,152 @@ export function useSurfaceView(
                 if (deg < 0) deg += 360;
                 headingDeg.value = deg;
             }
+            altitude.value = camera.value.position.y - groundAt(camera.value.position.x, camera.value.position.z);
         }
+    }
+
+    function groundAt(x: number, z: number): number {
+        if (!terrainMesh) return 0;
+        return getTerrainHeight(terrainMesh, x, z);
+    }
+
+    function wrapFlatPosition() {
+        if (!camera.value) return;
+        const halfSize = terrainSize / 2;
+        const p = camera.value.position;
+        if (p.x > halfSize) p.x -= terrainSize;
+        else if (p.x < -halfSize) p.x += terrainSize;
+        if (p.z > halfSize) p.z -= terrainSize;
+        else if (p.z < -halfSize) p.z += terrainSize;
+    }
+
+    function flyStep(delta: number) {
+        if (!camera.value) return;
+        // Camera.getWorldDirection is the look direction, pitch included.
+        camera.value.getWorldDirection(flyForward);
+        flyFlat.copy(flyForward);
+        flyFlat.y = 0;
+        if (flyFlat.lengthSq() < 1e-8) {
+            // Looking straight up or down. Screen-right stays matrix column 0 (no roll).
+            flyRight.setFromMatrixColumn(camera.value.matrixWorld, 0);
+            flyRight.y = 0;
+            if (flyRight.lengthSq() > 1e-8) {
+                flyRight.normalize();
+                // up × right = horizontal forward. right (1,0,0) → forward (0,0,−1).
+                flyFlat.crossVectors(upVector, flyRight);
+            } else {
+                flyRight.set(0, 0, 0);
+            }
+        } else {
+            flyFlat.normalize();
+            // look × up = right. look (0,0,−1) → right (1,0,0).
+            flyRight.crossVectors(flyFlat, upVector).normalize();
+        }
+
+        const move = tempVector3;
+        move.set(0, 0, 0);
+        if (moveState.forward) move.add(flyForward);
+        if (moveState.backward) move.sub(flyForward);
+        if (moveState.left) move.sub(flyRight);
+        if (moveState.right) move.add(flyRight);
+        if (moveState.jump) move.y += 1;
+        if (moveState.descend) move.y -= 1;
+        if (move.lengthSq() > 0) {
+            const speed = FLY_SPEED * (moveState.sprint ? 2.2 : 1);
+            move.normalize().multiplyScalar(speed * delta);
+            camera.value.position.add(move);
+        }
+        wrapFlatPosition();
+
+        const ground = groundAt(camera.value.position.x, camera.value.position.z);
+        const minY = ground + FLY_CLEARANCE;
+        const maxY = ground + FLY_CEILING;
+        if (camera.value.position.y < minY) camera.value.position.y = minY;
+        else if (camera.value.position.y > maxY) camera.value.position.y = maxY;
+        playerVelocity.y = 0;
+        isGrounded = false;
+    }
+
+    function placeExplorer(groundPoint: THREE.Vector3) {
+        if (!camera.value) return;
+        const flying = exploreMode.value === 'fly';
+        const y = groundPoint.y + (flying ? FLY_CRUISE : WALK_EYE);
+        camera.value.position.set(groundPoint.x, y, groundPoint.z);
+        playerPosition.value.set(groundPoint.x, y, groundPoint.z);
+        camera.value.up.set(0, 1, 0);
+        cameraYaw = 0;
+        cameraPitch = flying ? -0.42 : 0;
+        camera.value.rotation.set(cameraPitch, cameraYaw, 0, 'YXZ');
+        playerVelocity.set(0, 0, 0);
+        isGrounded = !flying;
+        altitude.value = y - groundPoint.y;
+    }
+
+    function resetMoveState() {
+        moveState.forward = false;
+        moveState.backward = false;
+        moveState.left = false;
+        moveState.right = false;
+        moveState.jump = false;
+        moveState.sprint = false;
+        moveState.lookUp = false;
+        moveState.lookDown = false;
+        moveState.lookLeft = false;
+        moveState.lookRight = false;
+        moveState.descend = false;
+    }
+
+    function setExploreMode(mode: ExploreMode) {
+        if (!camera.value) {
+            exploreMode.value = mode === 'walk' && !canWalk.value ? 'fly' : mode;
+            return;
+        }
+        if (mode === 'walk' && !canWalk.value) mode = 'fly';
+        if (mode === exploreMode.value) return;
+
+        exploreMode.value = mode;
+        if (useSphericalTerrain.value) {
+            radialUp(sphereUp, camera.value.position);
+            const ground = groundRadius(sphereUp);
+            let radius = camera.value.position.length();
+            if (mode === 'fly') {
+                const lifted = ground + 28;
+                if (radius < lifted) radius = lifted;
+                isGrounded = false;
+            } else {
+                radius = ground + WALK_EYE;
+                isGrounded = true;
+            }
+            camera.value.position.copy(sphereUp).multiplyScalar(radius);
+            radialVelocity = 0;
+            playerVelocity.set(0, 0, 0);
+            moveState.jump = false;
+            moveState.descend = false;
+            projectHeading(sphereHeading, sphereUp);
+            lookFromHeading(sphereLook, sphereHeading, sphereUp, cameraPitch);
+            applySphereLook(camera.value, sphereLook, sphereUp);
+            playerPosition.value.copy(camera.value.position);
+            altitude.value = radius - ground;
+            tangentFrame(sphereUp, sphereEast, sphereNorth);
+            headingDeg.value = headingDegrees(sphereHeading, sphereNorth, sphereEast);
+            return;
+        }
+        const x = camera.value.position.x;
+        const z = camera.value.position.z;
+        const ground = groundAt(x, z);
+        playerVelocity.set(0, 0, 0);
+        moveState.jump = false;
+        moveState.descend = false;
+        if (mode === 'fly') {
+            const lifted = ground + 28;
+            if (camera.value.position.y < lifted) camera.value.position.y = lifted;
+            isGrounded = false;
+        } else {
+            camera.value.position.y = ground + WALK_EYE;
+            isGrounded = true;
+        }
+        playerPosition.value.copy(camera.value.position);
+        altitude.value = camera.value.position.y - ground;
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -1304,18 +1558,29 @@ export function useSurfaceView(
             case 's': moveState.backward = true; break;
             case 'a': moveState.left = true; break;
             case 'd': moveState.right = true; break;
-            case ' ': moveState.jump = true; break;
+            case ' ':
+                moveState.jump = true;
+                event.preventDefault();
+                break;
             case 'shift': moveState.sprint = true; break;
+            case 'control':
+                moveState.descend = true;
+                break;
+            case 'f':
+                if (!event.repeat) {
+                    setExploreMode(exploreMode.value === 'walk' ? 'fly' : 'walk');
+                }
+                event.preventDefault();
+                break;
             case 'escape':
                 exit();
                 break;
         }
-        // Arrow keys for looking (don't use toLowerCase for these)
         switch (event.key) {
-            case 'ArrowUp': moveState.lookUp = true; break;
-            case 'ArrowDown': moveState.lookDown = true; break;
-            case 'ArrowLeft': moveState.lookLeft = true; break;
-            case 'ArrowRight': moveState.lookRight = true; break;
+            case 'ArrowUp': moveState.lookUp = true; event.preventDefault(); break;
+            case 'ArrowDown': moveState.lookDown = true; event.preventDefault(); break;
+            case 'ArrowLeft': moveState.lookLeft = true; event.preventDefault(); break;
+            case 'ArrowRight': moveState.lookRight = true; event.preventDefault(); break;
         }
     }
 
@@ -1327,6 +1592,7 @@ export function useSurfaceView(
             case 'd': moveState.right = false; break;
             case ' ': moveState.jump = false; break;
             case 'shift': moveState.sprint = false; break;
+            case 'control': moveState.descend = false; break;
         }
         switch (event.key) {
             case 'ArrowUp': moveState.lookUp = false; break;
@@ -1346,13 +1612,107 @@ export function useSurfaceView(
         renderer.value.setSize(w, h);
         if (composer) {
             composer.setSize(w, h);
+            // Composer resizes every pass to the full buffer. Put SSAO back to half res.
+            ssaoPass?.setSize(Math.max(1, Math.floor(w / 2)), Math.max(1, Math.floor(h / 2)));
         }
     }
 
-    async function enter(planetName: string) {
+    function placeOnSphere(dir: THREE.Vector3) {
+        if (!camera.value) return;
+        const flying = exploreMode.value === 'fly';
+        const ground = groundRadius(dir);
+        const radius = ground + (flying ? FLY_CRUISE : WALK_EYE);
+        const cam = camera.value;
+        cam.position.copy(dir).normalize().multiplyScalar(radius);
+        radialUp(sphereUp, cam.position);
+        tangentFrame(sphereUp, sphereEast, sphereNorth);
+        sphereHeading.copy(sphereNorth);
+        cameraYaw = 0;
+        cameraPitch = flying ? -0.42 : 0;
+        lastAppliedYaw = 0;
+        radialVelocity = 0;
+        playerVelocity.set(0, 0, 0);
+        isGrounded = !flying;
+        lookFromHeading(sphereLook, sphereHeading, sphereUp, cameraPitch);
+        applySphereLook(cam, sphereLook, sphereUp);
+        playerPosition.value.copy(cam.position);
+        altitude.value = radius - ground;
+        headingDeg.value = 0;
+    }
+
+    /**
+     * A dry point near the equator. Fallback is +Z if every sample is underwater.
+     * The returned vector is a new one; callers may keep it.
+     */
+    function findSphereSpawn(terrain: THREE.Mesh): THREE.Vector3 {
+        const radiusAt = terrain.userData.radiusAt as ((d: THREE.Vector3) => number) | undefined;
+        const waterR = (terrain.userData.waterRadius as number) ?? -1;
+        const base = (terrain.userData.planetRadius as number) ?? WALK_PLANET_RADIUS;
+        const relief = (terrain.userData.relief as number) ?? 30;
+        const modest = base + relief * 0.5;
+        const probe = new THREE.Vector3();
+        let best = new THREE.Vector3(0, 0, 1);
+        let bestScore = -Infinity;
+        let found = false;
+        const latitudes = [0.05, 0.22, -0.18, 0.4];
+        for (const latY of latitudes) {
+            let ringFound = false;
+            for (let i = 0; i < 48; i++) {
+                const lon = (i / 48) * Math.PI * 2;
+                probe.set(Math.sin(lon), latY, Math.cos(lon)).normalize();
+                const radial = radiusAt ? radiusAt(probe) : base;
+                const dry = waterR < 0 || radial > waterR + 1.5;
+                if (!dry) continue;
+                ringFound = true;
+                found = true;
+                const score = -Math.abs(radial - modest);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = probe.clone();
+                }
+            }
+            if (ringFound) break;
+        }
+        if (!found) best.set(0, 0, 1);
+        return best;
+    }
+
+    function findDrySpawn(terrain: THREE.Mesh, waterY: number | null): THREE.Vector3 {
+        const size = terrain.userData.terrainSize as number;
+        const originY = getTerrainHeight(terrain, 0, 0);
+        if (waterY == null || originY > waterY + 2) {
+            return new THREE.Vector3(0, originY, 0);
+        }
+
+        const step = size / 20;
+        let bestX = 0;
+        let bestZ = 0;
+        let bestY = originY;
+        let bestScore = -Infinity;
+        for (let z = -size / 2 + step; z < size / 2; z += step) {
+            for (let x = -size / 2 + step; x < size / 2; x += step) {
+                const y = getTerrainHeight(terrain, x, z);
+                if (y < waterY + 2) continue;
+                const score = -Math.hypot(x, z);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestX = x;
+                    bestZ = z;
+                    bestY = y;
+                }
+            }
+        }
+        return new THREE.Vector3(bestX, bestY, bestZ);
+    }
+
+    async function enter(planetName: string, mode?: ExploreMode) {
         if (isActive.value) return;
 
         isActive.value = true;
+        canWalk.value = canWalkSurface(planetName);
+        const requested = mode ?? defaultExploreMode(planetName);
+        exploreMode.value = requested === 'walk' && !canWalk.value ? 'fly' : requested;
+        resetMoveState();
 
         const sceneReady = initScene();
         if (!sceneReady) {
@@ -1375,6 +1735,7 @@ export function useSurfaceView(
 
         isActive.value = false;
         currentPlanet.value = null;
+        resetMoveState();
 
         if (animationId !== null) {
             cancelAnimationFrame(animationId);
@@ -1398,7 +1759,10 @@ export function useSurfaceView(
         // Cleanup all GPU resources
         if (terrainMesh && scene.value) {
             scene.value.remove(terrainMesh);
+            const release = terrainMesh.userData.disposeMapped as (() => void) | undefined;
+            release?.();
             terrainMesh.geometry.dispose();
+            updateMapped = null;
             const terrainMat = terrainMesh.material as THREE.MeshStandardMaterial;
             if (terrainMat.normalMap) terrainMat.normalMap.dispose();
             terrainMat.dispose();
@@ -1480,11 +1844,15 @@ export function useSurfaceView(
         isActive,
         isLoading,
         currentPlanet,
+        exploreMode,
+        canWalk,
+        altitude,
         playerPosition,
         headingDeg,
         timeOfDay,
         getTerrainMesh,
         getTerrainSize,
+        setExploreMode,
         enter,
         exit,
     };

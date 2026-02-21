@@ -66,7 +66,7 @@ export const PLANET_INFO: { [key: string]: ExtendedPlanetInfo } = {
         temperature: 165,
         atmosphere: "H₂ (90%), He (10%)",
         description: "Jupiter is the largest planet, with a mass 2.5× all other planets combined. The Great Red Spot is a storm larger than Earth that has raged for at least 400 years.",
-        moonCount: 95,
+        moonCount: 115,
         type: "Gas Giant"
     },
     saturn: {
@@ -74,11 +74,9 @@ export const PLANET_INFO: { [key: string]: ExtendedPlanetInfo } = {
         gravity: 10.44,
         temperature: 134,
         atmosphere: "H₂ (96%), He (3%)",
-        description: "Saturn is famous for its spectacular ring system made of ice and rock. It's the least dense planet - it would float in water if there was an ocean big enough.",
-        moonCount: 146,
-        type: "Gas Giant",
-        discoverer: "Galileo Galilei",
-        yearDiscovered: 1610
+        description: "Saturn has been known since antiquity. Galileo glimpsed its rings in 1610 but could not tell what they were. The rings are ice and rock, and Saturn is the least dense planet: it would float if there were an ocean big enough.",
+        moonCount: 293,
+        type: "Gas Giant"
     },
     uranus: {
         mass: "8.681 × 10²⁵ kg",
@@ -86,7 +84,7 @@ export const PLANET_INFO: { [key: string]: ExtendedPlanetInfo } = {
         temperature: 76,
         atmosphere: "H₂ (83%), He (15%), CH₄ (2%)",
         description: "Uranus rotates on its side with an axial tilt of 98°, likely from a collision with an Earth-sized object. Its blue-green color comes from methane in the atmosphere.",
-        moonCount: 28,
+        moonCount: 29,
         type: "Ice Giant",
         discoverer: "William Herschel",
         yearDiscovered: 1781
@@ -175,7 +173,7 @@ export function getPlanetEmoji(name: string): string {
  * Format temperature with both Kelvin and Celsius
  */
 export function formatTemperature(kelvin: number): string {
-    const celsius = kelvin - 273;
+    const celsius = Math.round(kelvin - 273.15);
     return `${kelvin} K (${celsius > 0 ? '+' : ''}${celsius}°C)`;
 }
 

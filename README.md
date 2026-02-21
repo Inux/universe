@@ -11,30 +11,12 @@ A browser-based 3D solar system explorer built with Vue.js, Three.js, and TypeSc
 - **Camera Controls** - Smooth orbit controls with planet focus transitions
 
 ### Surface Exploration
-- **Advanced Terrain Generation (Offline + Runtime)**
-  - Pre-generated 16-bit heightmaps (default: 1024×1024) generated via `tools/terrain-generator`
-  - Runtime integration loads `/public/terrains/{planet}/heightmap.png` + `metadata.json`
-  - Fallback to runtime simplex-noise terrain generation if pre-generated assets are missing
-- **Biome System (Earth)**
-  - 7 distinct biomes: Plains, Forest, Desert, Tundra, Mountain, Beach, Ocean
-  - Temperature and moisture-based biome distribution
-  - Smooth biome transitions with gradient blending
-  - Biome-specific colors, heights, and 200+ props
-- **GTA5-style Controls**
-  - WASD movement with sprint and jump
-  - Mouse look camera control
-  - Realistic physics with terrain collision
-- **Visual Features**
-  - Day/night cycle with dynamic lighting
-  - Mars dust particles
-  - Shadow mapping and advanced lighting
-- **UI/UX**
-  - Real-time HUD (coordinates, heading, time, gravity)
-  - Minimap with terrain heightmap
-  - Auto-fading controls hint
-- **Performance**
-  - LOD system foundation
-  - Distance-based prop culling
+- **Closed planets** you can walk around. Gravity pulls toward the center. There is no square edge and no teleport to the other side.
+- **Measured ground** on Mercury, Venus, Earth, Mars, and Pluto: published elevation grids and mosaics on the sphere. Heights are exaggerated so mountains stand above the camera; a lap of the planet is still a few minutes. Haumea, Makemake, and Eris stay procedural noise, because no global survey exists. The Sun and the gas giants stay noise too.
+- **Walk or fly** on solid worlds. The Sun and the gas giants are fly-only.
+- **WASD**, sprint, jump, and mouse look. On the sphere, up is radial.
+- **Day/night** as you walk around a lit planet. The photosphere stays bright.
+- **HUD** with latitude, longitude, heading, altitude, local time, and a north-up minimap of the ground around you.
 
 ## Quick Start
 
@@ -45,7 +27,7 @@ npm run dev
 
 ## Optional: Generate Pre-Generated Terrains
 
-Terrain heightmaps are already expected in `public/terrains/`. To regenerate them:
+The surface view does not load these square maps. The tool still writes them under `public/terrains/` if you want to regenerate the old assets:
 
 ```bash
 npm run generate:terrains

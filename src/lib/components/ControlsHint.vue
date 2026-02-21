@@ -5,6 +5,7 @@
     <div class="control">⏎ Enter - Open info / Explore</div>
     <div class="control">◀▶ Arrows - Navigate planets</div>
     <div class="control">ℹ️ I - Toggle planet names</div>
+    <div class="control">␣ Space - Pause time</div>
     <div class="control">⎋ ESC - Close / View all</div>
   </div>
 </template>
@@ -37,5 +38,16 @@
 
 .control {
   opacity: 0.9;
+}
+
+@media (max-width: 900px) {
+  .controls-hint {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    max-width: none;
+    box-sizing: border-box;
+  }
 }
 </style>

@@ -4,14 +4,22 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createStarfield, createSpaceBackground, createDistantGalaxies } from '../three/skybox';
 import {
     SOLAR_SYSTEM,
-    SCALE,
-    DISTANCE_SCALE_FACTOR,
     getLogarithmicSize,
+    farthestOrbitRadius,
     createSolarSystem,
     updateOrbitalPositions,
     SolarSystemObjects
 } from '../three/solarSystem';
 import { CameraTransition, easeOutCubic } from '../three/CameraTransition';
+import {
+    DEFAULT_STEP,
+    cameraClipPlanes,
+    clampStep,
+    orbitMaxDistance,
+    skyScaleForFarthest,
+    spinScaleForRate,
+    timeRate,
+} from '../three/viewScale';
 
 export interface UseThreeSceneOptions {
     onPlanetSelect?: (planetName: string) => void;
@@ -39,8 +47,16 @@ export function useThreeScene(
     const raycaster = new THREE.Raycaster();
     raycaster.params.Line = { threshold: 10 };
     const mouse = new THREE.Vector2();
-    const distanceScaleValue = DISTANCE_SCALE_FACTOR;
+    // Outer edge of the star shell and the space-background sphere in skybox.ts.
+    const SKY_SHELL_RADIUS = 600_000;
+    let skyScale = 1;
+    let skyObjects: THREE.Object3D[] = [];
+    let farthestOrbit = 0;
+    let timeRunning = true;
+    let timeStepIndex = DEFAULT_STEP;
+    let distanceStepIndex = DEFAULT_STEP;
     let time = 0;
+    let lastFrameMs = 0;
     let animationId: number | null = null;
     let isPaused = false;
 
@@ -69,7 +85,10 @@ export function useThreeScene(
         );
 
         // Create renderer with proper color management
-        renderer.value = new THREE.WebGLRenderer({ antialias: true });
+        renderer.value = new THREE.WebGLRenderer({
+            antialias: true,
+            powerPreference: 'high-performance',
+        });
         renderer.value.setSize(containerRef.value.clientWidth, containerRef.value.clientHeight);
         renderer.value.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
@@ -83,11 +102,10 @@ export function useThreeScene(
 
         containerRef.value.appendChild(renderer.value.domElement);
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(1, 1, 1);
-        scene.value.add(ambientLight, directionalLight);
+        // Fill light only. The sun's point light supplies the day side, so a fixed
+        // directional light would light planets from the wrong direction.
+        const ambientLight = new THREE.AmbientLight(0x222238, 0.55);
+        scene.value.add(ambientLight);
 
         // Set initial camera position - closer view so sun is visible
         const sunSize = getLogarithmicSize(SOLAR_SYSTEM.sun.radius);
@@ -98,7 +116,7 @@ export function useThreeScene(
         controls.value = new OrbitControls(camera.value, renderer.value.domElement);
         controls.value.enableDamping = true;
         controls.value.dampingFactor = 0.05;
-        controls.value.minDistance = getLogarithmicSize(SOLAR_SYSTEM.earth.radius) * 0.5; // Can't zoom too close
+        controls.value.minDistance = getLogarithmicSize(SOLAR_SYSTEM.sun.radius) * 1.15;
         controls.value.maxDistance = 120000; // Extended for Kuiper belt objects
         controls.value.enablePan = true;
         controls.value.enableZoom = true;
@@ -112,16 +130,19 @@ export function useThreeScene(
 
         try {
             // Create space background
-            createSpaceBackground(scene.value);
-            createStarfield(scene.value, 15000);
-            createDistantGalaxies(scene.value, 80);
+            skyObjects = [
+                createSpaceBackground(scene.value),
+                createStarfield(scene.value, 15000),
+                createDistantGalaxies(scene.value, 80),
+            ];
 
             // Create solar system
             solarSystemObjects.value = await createSolarSystem(
                 scene.value,
                 textureLoader,
-                distanceScaleValue
+                distanceStepIndex
             );
+            applyDistanceStep();
 
             // Create invisible hitbox meshes for easier clicking
             createHitboxes();
@@ -165,24 +186,27 @@ export function useThreeScene(
         }
     }
 
-    function updateOrbits() {
+    function updateOrbits(delta: number) {
         if (!solarSystemObjects.value) return;
 
-        time += SCALE.TIME / 60;
+        const rate = timeRate(timeStepIndex);
+        time += rate * delta;
 
         updateOrbitalPositions(
             solarSystemObjects.value.planets,
             solarSystemObjects.value.moons,
             time,
             selectedPlanet.value,
-            distanceScaleValue
+            distanceStepIndex,
+            delta,
+            spinScaleForRate(rate)
         );
 
         // Update hitbox positions to match planet positions
         for (const [name, hitbox] of hitboxMeshes.entries()) {
             const body = solarSystemObjects.value.planets.get(name);
             if (body) {
-                hitbox.position.copy(body.mesh.position);
+                hitbox.position.copy(body.root.position);
             }
         }
 
@@ -192,26 +216,66 @@ export function useThreeScene(
             if (body) {
                 const planetData = SOLAR_SYSTEM[name];
                 const visualSize = getLogarithmicSize(planetData.radius);
-                label.position.copy(body.mesh.position);
+                label.position.copy(body.root.position);
                 label.position.y += visualSize * 1.5; // Float above planet
             }
         }
-
-        if (controls.value) {
-            controls.value.target.set(0, 0, 0);
-        }
     }
 
-    function animate() {
+    function animate(now = performance.now()) {
         if (!isInitialized.value || isPaused) return;
 
         animationId = requestAnimationFrame(animate);
+        const delta = lastFrameMs === 0 ? 1 / 60 : Math.min((now - lastFrameMs) / 1000, 0.05);
+        lastFrameMs = now;
         controls.value?.update();
-        updateOrbits();
+        // Pausing time freezes orbits and spin. The camera keeps damping and the loop keeps drawing.
+        updateOrbits(timeRunning ? delta : 0);
+        updateCameraClip();
 
         if (renderer.value && scene.value && camera.value) {
             renderer.value.render(scene.value, camera.value);
         }
+    }
+
+    function applyDistanceStep() {
+        farthestOrbit = farthestOrbitRadius(distanceStepIndex);
+        if (controls.value) {
+            controls.value.maxDistance = orbitMaxDistance(farthestOrbit);
+        }
+        const nextScale = skyScaleForFarthest(farthestOrbit, SKY_SHELL_RADIUS);
+        if (nextScale !== skyScale) {
+            skyScale = nextScale;
+            for (const obj of skyObjects) obj.scale.setScalar(skyScale);
+        }
+        updateCameraClip();
+    }
+
+    function updateCameraClip() {
+        const cam = camera.value;
+        const ctr = controls.value;
+        if (!cam || !ctr) return;
+        const dist = cam.position.distanceTo(ctr.target);
+        const clip = cameraClipPlanes(dist, farthestOrbit, SKY_SHELL_RADIUS * skyScale);
+        if (cam.near === clip.near && cam.far === clip.far) return;
+        cam.near = clip.near;
+        cam.far = clip.far;
+        cam.updateProjectionMatrix();
+    }
+
+    function setTimeRunning(running: boolean) {
+        timeRunning = running;
+    }
+
+    function setTimeStep(step: number) {
+        timeStepIndex = clampStep(step);
+    }
+
+    function setDistanceStep(step: number) {
+        distanceStepIndex = clampStep(step);
+        // Reposition at the current simulated time. A zero delta does not advance the clock.
+        applyDistanceStep();
+        updateOrbits(0);
     }
 
     function handleResize() {
@@ -284,15 +348,22 @@ export function useThreeScene(
         const body = solarSystemObjects.value.planets.get(planetName);
         if (!body) return;
 
-        updateOrbits();
+        updateOrbits(0);
         controls.value.target.set(0, 0, 0);
+        controls.value.minDistance = Math.max(2, getLogarithmicSize(SOLAR_SYSTEM[planetName].radius) * 1.15);
 
         const lookAt = new THREE.Vector3(0, 0, 0);
 
-        // Use same distance formula for all bodies including sun
+        // Frame the sunlit face. The camera sits sunward of the body so the day side
+        // points at the viewer. The sun itself keeps a fixed three-quarter view.
         const planetData = SOLAR_SYSTEM[planetName];
         const distance = getLogarithmicSize(planetData.radius) * 3;
-        const targetPosition = new THREE.Vector3(distance, distance * 0.7, distance);
+        const sunRoot = solarSystemObjects.value.planets.get('sun')?.root;
+        const targetPosition = new THREE.Vector3(distance, distance * 0.55, distance);
+        if (planetName !== 'sun' && sunRoot && sunRoot.position.lengthSq() > 1) {
+            const sunward = sunRoot.position.clone().normalize();
+            targetPosition.set(sunward.x * distance, distance * 0.45, sunward.z * distance);
+        }
 
         cameraTransition.value?.transitionTo(targetPosition, lookAt, {
             duration: 1200,
@@ -322,6 +393,7 @@ export function useThreeScene(
     function resume() {
         if (isPaused && isInitialized.value) {
             isPaused = false;
+            lastFrameMs = 0;
             animate();
         }
     }
@@ -408,6 +480,9 @@ export function useThreeScene(
         resetView,
         setLabelsVisible,
         pause,
-        resume
+        resume,
+        setTimeRunning,
+        setTimeStep,
+        setDistanceStep
     };
 }

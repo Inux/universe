@@ -12,6 +12,7 @@
     <!-- Surface Exploration View -->
     <SurfaceView
       :planet="selectedPlanet"
+      :mode="surfaceMode"
       :shouldEnter="shouldEnterSurface"
       @exit="handleSurfaceExit"
     />
@@ -26,7 +27,17 @@
 
     <!-- UI Layer (hidden during surface view) -->
     <div v-show="!surfaceViewActive" class="ui-layer">
-      <ControlsHint />
+      <div class="orbit-dock">
+        <ControlsHint />
+        <ViewControls
+          :time-running="timeRunning"
+          :time-step="timeStep"
+          :distance-step="distanceStep"
+          @toggle-time="toggleTime"
+          @update-time-step="setTimeStep"
+          @update-distance-step="setDistanceStep"
+        />
+      </div>
       <InfoPanel
         :planet="selectedPlanet"
         :isVisible="infoPanelVisible"
@@ -41,16 +52,23 @@
 import { ref, computed } from 'vue';
 import ThreeCanvas from './lib/components/ThreeCanvas.vue';
 import ControlsHint from './lib/components/ControlsHint.vue';
+import ViewControls from './lib/components/ViewControls.vue';
 import InfoPanel from './lib/components/InfoPanel.vue';
+import { DEFAULT_STEP } from './lib/three/viewScale';
 import SurfaceView from './lib/components/SurfaceView.vue';
 import PerformanceHUD from './lib/components/PerformanceHUD.vue';
+import { defaultExploreMode, type ExploreMode } from './lib/three/exploration';
 
 const threeCanvas = ref<InstanceType<typeof ThreeCanvas> | null>(null);
 const selectedPlanet = ref<string | null>(null);
 const infoPanelVisible = ref(false);
 const surfaceViewActive = ref(false);
 const shouldEnterSurface = ref(false);
+const surfaceMode = ref<ExploreMode>('walk');
 const showPlanetLabels = ref(false);
+const timeRunning = ref(true);
+const timeStep = ref(DEFAULT_STEP);
+const distanceStep = ref(DEFAULT_STEP);
 
 // Planet order for arrow key navigation (including dwarf planets)
 const PLANET_ORDER = ['sun', 'mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto', 'haumea', 'makemake', 'eris'];
@@ -70,8 +88,8 @@ function handleClose() {
   infoPanelVisible.value = false;
 }
 
-function handleExplore(planetName: string) {
-  // Hide info panel and enter surface view
+function handleExplore(planetName: string, mode?: ExploreMode) {
+  surfaceMode.value = mode ?? defaultExploreMode(planetName);
   infoPanelVisible.value = false;
   surfaceViewActive.value = true;
   shouldEnterSurface.value = true;
@@ -96,6 +114,21 @@ function handleSurfaceExit() {
   }, 100);
 }
 
+function toggleTime() {
+  timeRunning.value = !timeRunning.value;
+  threeCanvas.value?.setTimeRunning(timeRunning.value);
+}
+
+function setTimeStep(step: number) {
+  timeStep.value = step;
+  threeCanvas.value?.setTimeStep(step);
+}
+
+function setDistanceStep(step: number) {
+  distanceStep.value = step;
+  threeCanvas.value?.setDistanceStep(step);
+}
+
 function navigatePlanet(direction: 'prev' | 'next') {
   if (!selectedPlanet.value) return;
 
@@ -115,8 +148,24 @@ function navigatePlanet(direction: 'prev' | 'next') {
 }
 
 function handleKeyDown(event: KeyboardEvent) {
-  // Don't handle keys if in surface view (SurfaceView handles it)
+  // Surface view uses Space to jump or rise. Don't steal it.
   if (surfaceViewActive.value) return;
+
+  const tag = (event.target as HTMLElement | null)?.tagName;
+
+  if (event.key === ' ') {
+    // A focused Pause button activates itself. Anywhere else, Space pauses time.
+    if (tag === 'BUTTON') return;
+    event.preventDefault();
+    if (event.repeat || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    toggleTime();
+    return;
+  }
+
+  if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') &&
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+    return;
+  }
 
   switch (event.key) {
     case 'Escape':
@@ -125,8 +174,7 @@ function handleKeyDown(event: KeyboardEvent) {
       break;
 
     case 'Enter':
-      if (infoPanelVisible.value && selectedPlanet.value && selectedPlanet.value !== 'sun') {
-        // Second Enter goes to surface view
+      if (infoPanelVisible.value && selectedPlanet.value) {
         handleExplore(selectedPlanet.value);
       } else {
         // First Enter opens info panel
@@ -198,5 +246,18 @@ if (typeof window !== 'undefined') {
 
 .ui-layer > * {
   pointer-events: auto;
+}
+
+@media (max-width: 900px) {
+  .orbit-dock {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: 130;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
 }
 </style>

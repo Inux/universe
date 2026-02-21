@@ -10,12 +10,15 @@
 - **Orbital motion**: Planets (and some moons) move in orbits over time
 - **Planet selection**: Click on a planet to select it and open its info panel
 - **Camera controls**: Zoom, pan, and rotate around the solar system view
-- **Planet info panel**: Displays physical/orbital facts and an `Explore Surface` action (not available for the Sun)
+- **Planet info panel**: Displays physical/orbital facts. Solid worlds offer `Walk the surface` and `Fly over`. The Sun and the gas giants offer `Fly over` only.
 - **Keyboard shortcuts**:
-  - `Enter`: Open info panel (or enter surface view if a non-Sun planet is already selected)
+  - `Enter`: Open info panel (or enter the surface view if a body is already selected)
   - `ArrowLeft` / `ArrowRight`: Cycle planets while the info panel is open
   - `I`: Toggle planet name labels
+  - `Space`: Pause or resume orbits and rotation. In the surface view, Space still jumps or rises.
   - `ESC`: Close info panel and reset view
+- **Time slider**: Six steps, from real time (1 second = 1 second) to the tour clock (an Earth year in about 32 seconds). The tour step is the default.
+- **Distance slider**: Six steps, from true orbital distances to the packed tour layout. The tour step is the default. Planet sizes stay logarithmic.
 
 ### 1.2 Supported Celestial Bodies
 - **Star**: Sun
@@ -28,71 +31,65 @@
 ## 2. Surface Exploration (First-Person View)
 
 ### 2.1 Landing on Planets
-- **Surface entry**: Use `Explore Surface` from a planet’s info panel (or press `Enter` when the info panel is open)
+- **Surface entry**: `Walk the surface` or `Fly over` from the info panel. `Enter` while the panel is open uses the default: walk on solid worlds, fly on the Sun and the gas giants.
 - **Return to orbit**: Press `ESC` or click `← Return to Orbit`
-- **Supported surfaces**: All non-Sun bodies (planets + dwarf planets)
+- **Supported surfaces**: Every body in the system, including the Sun
+  - **Walk and fly**: Mercury, Venus, Earth, Mars, Pluto, Eris, Makemake, Haumea. `F` switches mode.
+  - **Fly only**: Sun (photosphere), Jupiter, Saturn, Uranus, Neptune (cloud deck)
   - **Pre-generated terrain assets**: Mercury, Venus, Earth, Mars, Moon, Pluto, Eris, Makemake, Haumea
-  - **Procedural fallback terrain**: Bodies without pre-generated assets (e.g., gas giants)
+  - **Procedural heightfield**: Sun and the gas giants
 
 ### 2.2 Movement Controls
-- **WASD**: Move forward, left, backward, right
+- **Walk — WASD**: Move forward, left, backward, right along the ground
+- **Fly — WASD**: Fly along the view. `Space` rises, `Ctrl` descends, and the craft stays above the surface
 - **Mouse**: Look around (first-person camera)
-- **Shift**: Sprint (faster movement)
-- **Space**: Jump
+- **Shift**: Sprint, or fly faster
+- **Space** (walk): Jump
+- **F**: Switch between walk and fly on solid worlds
 - **Arrow keys**: Look around (keyboard alternative)
 - **Pointer lock**: Click in the 3D view to capture the mouse for FPS-style controls
 
 ### 2.3 Terrain
-- **Pre-generated terrains (where available)**: 2048×2048 heightmaps loaded from `/public/terrains/{planet}/`
-- **Terrain size**: Large explorable area (1000×1000 units)
-- **Height variation**: Mountains, valleys, and varied elevation
-- **Planet-specific terrain**:
-  - Mercury/Moon: Heavily cratered surfaces
-  - Venus: Moderate erosion patterns
-  - Earth: Heavy erosion with realistic features
-  - Mars: Ancient erosion patterns
-  - Dwarf planets: Icy terrain with ridged features
+- **Planet**: A closed sphere of radius 480. Walk in one direction and you return by going around. There is no square edge and no teleport to the opposite side.
+- **Height**: Mercury, Venus, Earth, Mars, and Pluto use measured elevation. The grid has no seam. Haumea, Makemake, and Eris stay procedural noise: there is no published global survey, and fictional maps are not used. The Sun and the gas giants stay noise as well.
+- **Relief**: Vertical scale is exaggerated. A true Earth shrunk to this radius would hide Everest under the camera, so mountains are lifted until they read as terrain. Sea level is the reference sphere. A walk around the planet is still a few minutes. Above about 9 km the extra height is compressed, so Olympus Mons stays a mountain.
+- **Mesh**: A coarse sphere draws the limb. Three clipmap rings follow the camera, so the triangles underfoot are a fraction of a unit. The collider uses the same height function as those vertices.
+- **Planet-specific look**:
+  - Mercury, Venus, Mars, Pluto: the measured mosaic, with rock or ice detail up close. Venus is Magellan radar, not a color photograph. Pluto's far side and much of the south were never measured, and those faces stay smooth and plain.
+  - Earth: satellite color, real sea level, large lakes, sand and snow up close
+  - Haumea, Makemake, Eris: height-colored procedural ice
+  - Jupiter, Saturn, Uranus, Neptune: latitude cloud bands, fly only
+  - Sun: glowing photosphere, fly only
 
-### 2.3.1 Water Systems (Earth, Pluto, etc.)
-- **Rivers**: Generated using watershed analysis and flow accumulation
-- **River valleys**: V-shaped valleys carved into terrain along river paths
-- **Lakes**: Detected as connected depressions below sea level
-- **Oceans**: Large water bodies touching terrain edges
-- **Coastlines**: Detected for beach biome placement
-- **Water data**: Exported in terrain metadata for runtime rendering
+### 2.3.1 Water (Earth)
+- **Ocean**: A transparent shell at real sea level. The mesh under it is the measured seafloor, so coasts are the shoreline, not a fraction of the noise amplitude. Basins that do not connect to the ocean, such as Death Valley, stay dry.
+- **Lakes**: Large lakes (the Great Lakes, Victoria, the Caspian, Baikal) come from a water mask. You can walk on them. Rivers are thinner than the global grid.
+- **Waves**: A small shader displacement on the ocean shell, with foam in the shallows
+- **Spawn**: A coast, so the camera does not start in the water
 
-### 2.4 Biome System (Earth)
-- **Biome types**: Plains, Forest, Desert, Tundra, Mountain, Beach, Ocean
-- **Biome generation**: Based on temperature and moisture noise
-- **Biome transitions**: Smooth gradient blending between biomes
-- **Biome-specific colors**: Each biome has distinct terrain coloring
+### 2.4 Surface color
+- **Mapped worlds**: Published mosaics. Up close, Earth adds beach, rock, and a latitude snow line on top of the satellite color. Farther away you see the mosaic.
+- **Unmapped worlds and gas giants**: Procedural color. Cloud bands follow latitude.
+- The square biome map (forest, desert, plains) is not sampled on the sphere, because it would put a seam on the planet
 
 ### 2.5 Props and Vegetation
-- **Earth props**:
-  - Forest: Dense trees with varied sizes
-  - Plains: Sparse bushes and grass
-  - Desert: Cacti and desert rocks
-  - Tundra: Ice formations and snow patches
-  - Mountain: Rocky outcrops with snow peaks
-  - Beach: Palm trees
-- **Other planets**: Rocks, ice formations appropriate to planet type
-- **Prop count**: 200+ props on Earth
-- **Distance culling**: Props hidden beyond 150 units for performance
+- Earth scatters a few trees and rocks near the camera, on land, at human scale. The other mapped worlds scatter rocks. They are rebuilt as you move. The planet is not filled with a forest.
+- The old square-patch props and the Mars dust disk are not used on the sphere, so nothing floats at the planet's center
 
 ### 2.6 Lighting and Atmosphere
-- **Day/night cycle**: Sun position changes over time
-- **Directional sunlight**: Realistic sun lighting with shadows
-- **Shadow mapping**: Objects cast shadows on terrain
-- **Hemisphere lighting**: Sky and ground ambient colors
-- **Dust particles**: Visible on Mars surface
+- **Day/night cycle**: The sun is a fixed world direction. Walking around the planet changes the local time of day
+- **Directional sunlight**: Offset from the player along that direction
+- **Shadows**: The ground receives them. The planet mesh does not cast them
+- **Photosphere**: The Sun's surface is emissive, so the night side does not go black
 
 ---
 
 ## 3. HUD (Heads-Up Display)
 
 ### 3.1 Information Display
-- **Compass**: Heading in degrees (0-360°)
-- **Coordinates**: Current X, Y, Z position
+- **Compass**: Heading in degrees (0° is north, clockwise)
+- **Coordinates**: Latitude and longitude
+- **Altitude**: Height above the local ground
 - **Time of day**: 24-hour clock display
 - **Planet name**: Current planet displayed
 - **Gravity info**: Planet's gravity value
@@ -116,8 +113,7 @@
 - **Refresh rate**: Updates ~10 times per second as the player moves
 
 ### 4.2 Features
-- **Terrain heightmap**: Top-down height visualization
-- **Height coloring**: Colors indicate terrain elevation
+- **Local ground**: Colors of the surface around you, north at the top, from a baked map of the planet
 - **Player marker**: Red dot showing current position
 - **Direction indicator**: Arrow showing facing direction
 - **Grid overlay**: Reference grid for orientation
@@ -127,10 +123,9 @@
 ## 5. Camera System
 
 ### 5.1 First-Person Camera
-- **Rotation order**: YXZ (prevents gimbal lock)
-- **Pitch limits**: ±72 degrees (prevents flipping)
-- **Yaw rotation**: Always around world Y axis
-- **Roll correction**: Auto-corrects with damping
+- **Up**: Radial, away from the planet center, so the horizon stays level as you walk
+- **Pitch limits**: ±72 degrees
+- **Heading**: 0° is north and increases clockwise. The heading is carried along the ground, so a pole does not spin the view
 
 ### 5.2 Mouse Look
 - **Pointer lock**: Full mouse capture for smooth control
@@ -146,7 +141,7 @@
 ## 6. Sky and Environment
 
 ### 6.1 Sky Dome
-- **Radius**: 3500 units (large sky sphere)
+- **Radius**: 2880 units on the planet (six times the surface radius), inside the camera far plane
 - **Gradient**: Horizon to zenith color transition
 - **Render order**: Renders behind all other objects
 
@@ -165,8 +160,8 @@
 - **Fall speed**: Realistic gravity-based falling
 
 ### 7.2 Ground Collision
-- **Terrain following**: Player stays on terrain surface
-- **Height detection**: Collision with terrain heightmap
+- **Terrain following**: Walk snaps to the ground. Fly stays between 8 and 160 units above it
+- **Height detection**: The same radial height function that builds the mesh. Gravity pulls toward the center
 
 ---
 
@@ -178,15 +173,13 @@
 - **Color coding**: FPS indicator changes color (green/yellow/red) based on performance
 
 ### 8.2 Terrain Optimization
-- **Prop culling**: Distance-based prop visibility (150 units)
 - **Solar system pause**: Solar system rendering is paused while in surface view
 - **Minimap throttling**: Minimap rendering is throttled for performance
-- **Pre-generated assets**: Terrain loaded from cached heightmaps
+- **Surface mesh**: Coarse sphere for the limb, plus a clipmap near the camera on mapped worlds. The ground does not cast shadows. Fly-only bodies and the unmapped dwarf planets stay a 256×128 noise sphere.
 
 ### 8.3 Asset Loading
-- **Lazy loading**: Terrain only loads when visiting planet
-- **Browser caching**: PNG assets cached automatically
-- **Fallback**: Runtime generation if pre-generated terrain fails
+- **Lazy loading**: The sphere is built when you enter a planet
+- **Surface**: Mapped worlds load `public/maps/{planet}` (elevation, color, metadata) when you enter. The Sun, the gas giants, and the unmapped dwarf planets are built from noise in the browser. The offline square heightmaps are not the planet you walk on.
 
 ---
 

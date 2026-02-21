@@ -1,0 +1,8 @@
+{
+  "width": 8192,
+  "height": 4096,
+  "min": -10708.2216796875,
+  "max": 7198.2783203125,
+  "radiusKm": 6371.0,
+  "sources": "Elevation: NOAA NCEI ETOPO 2022 ice surface, 60 arc-second, area-averaged (DOI 10.25921/fd45-gt74). Ocean mask: connected bathymetry. Lakes: Solar System Scope 8k specular map (CC BY 4.0). Color: Solar System Scope 8k earth daymap (CC BY 4.0), resized. Vertical scale is exaggerated in the viewer."
+}
