@@ -1,0 +1,46 @@
+{
+  "planet": "haumea",
+  "type": "dwarf",
+  "generation": {
+    "resolution": 2048,
+    "terrainScale": 0.3,
+    "roughness": 0.2,
+    "erosionIntensity": 0,
+    "generationTime": 12.405
+  },
+  "heightmap": {
+    "min": 0.060345131903886795,
+    "max": 0.21937748789787292,
+    "avg": 0.1351281189514273
+  },
+  "config": {
+    "gravity": 0.44,
+    "hasAtmosphere": false,
+    "hasWater": true,
+    "temperature": 32,
+    "hasBiomes": false
+  },
+  "water": {
+    "seaLevel": 0.25,
+    "rivers": [],
+    "waterBodies": [
+      {
+        "id": 0,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 4194304,
+        "bounds": {
+          "minX": 0,
+          "minY": 0,
+          "maxX": 2047,
+          "maxY": 2047
+        },
+        "coastlinePoints": []
+      }
+    ]
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

@@ -264,6 +264,12 @@ export class TerrainGenerator {
     private moistureNoise: ReturnType<typeof createNoise2D>; // For biome variation
     private config: TerrainConfig;
 
+    // Pre-allocated Color objects to avoid creating 130K+ during mesh generation
+    private _blendedColor = new THREE.Color();
+    private _biomeColor = new THREE.Color();
+    private _snowColor = new THREE.Color(0.95, 0.97, 1.0);
+    private _tempColor = new THREE.Color();
+
     constructor(config: TerrainConfig, seed?: number) {
         // Create seeded random function if seed provided
         const random = seed !== undefined ? this.seededRandom(seed) : Math.random;
@@ -399,7 +405,45 @@ export class TerrainGenerator {
     }
 
     /**
-     * Get terrain color based on height and biome with smooth transitions
+     * Calculate terrain slope at a noise-space position using finite differences.
+     * Returns gradient magnitude (0 = flat, higher = steeper).
+     */
+    private getSlopeAtNoise(x: number, y: number): number {
+        const epsilon = 0.02;
+        const hR = this.getHeight(x + epsilon, y);
+        const hL = this.getHeight(x - epsilon, y);
+        const hU = this.getHeight(x, y - epsilon);
+        const hD = this.getHeight(x, y + epsilon);
+        const dx = (hR - hL) / (2 * epsilon);
+        const dy = (hD - hU) / (2 * epsilon);
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /**
+     * Calculate snow coverage based on slope and altitude.
+     * Snow accumulates on gentle slopes above the snow line,
+     * slides off steep faces. Creates realistic snow patterns.
+     */
+    private getSnowCoverage(normalizedHeight: number, slope: number): number {
+        const snowLine = 0.6; // Altitude above which snow starts accumulating
+
+        if (normalizedHeight < snowLine) return 0;
+
+        // More snow at higher altitude
+        const altitudeFactor = (normalizedHeight - snowLine) / (1 - snowLine);
+
+        // Less snow on steep slopes (slides off)
+        const slopeFactor = Math.max(0, 1 - slope * 3.0);
+
+        // Combine factors
+        const coverage = altitudeFactor * slopeFactor;
+
+        return Math.min(1, Math.max(0, coverage));
+    }
+
+    /**
+     * Get terrain color based on height and biome with smooth transitions.
+     * Includes slope-based snow accumulation for realistic mountain coloring.
      */
     public getColor(height: number, x?: number, y?: number): THREE.Color {
         const normalizedHeight = height / this.config.amplitude;
@@ -412,7 +456,7 @@ export class TerrainGenerator {
         // If biomes are enabled and coordinates provided, use biome-based coloring
         if (this.config.hasBiomes && x !== undefined && y !== undefined) {
             // Sample biomes in a small radius for smooth blending
-            const blendRadius = 0.15; // Noise space radius for blending
+            const blendRadius = 0.15;
             const samples = [
                 { x: x, y: y, weight: 1.0 },
                 { x: x + blendRadius, y: y, weight: 0.5 },
@@ -424,7 +468,6 @@ export class TerrainGenerator {
             const biomeWeights = new Map<BiomeType, number>();
             let totalWeight = 0;
 
-            // Sample biomes at different points
             for (const sample of samples) {
                 const sampleHeight = this.getHeight(sample.x, sample.y) / this.config.amplitude;
                 const biome = this.getBiome(sample.x, sample.y, sampleHeight);
@@ -435,33 +478,37 @@ export class TerrainGenerator {
             }
 
             // Blend colors based on biome weights
-            const blendedColor = new THREE.Color(0, 0, 0);
+            this._blendedColor.setRGB(0, 0, 0);
             for (const [biome, weight] of biomeWeights) {
                 const biomeConfig = BIOMES[biome];
                 const biomeFactor = weight / totalWeight;
 
-                // Mix between biome colors based on height
-                const biomeColor = new THREE.Color();
-                biomeColor.lerpColors(biomeConfig.color, biomeConfig.secondaryColor, normalizedHeight);
+                this._biomeColor.lerpColors(biomeConfig.color, biomeConfig.secondaryColor, normalizedHeight);
 
-                // Add weighted contribution
-                blendedColor.r += biomeColor.r * biomeFactor;
-                blendedColor.g += biomeColor.g * biomeFactor;
-                blendedColor.b += biomeColor.b * biomeFactor;
+                this._blendedColor.r += this._biomeColor.r * biomeFactor;
+                this._blendedColor.g += this._biomeColor.g * biomeFactor;
+                this._blendedColor.b += this._biomeColor.b * biomeFactor;
             }
 
-            return blendedColor;
+            // Slope-based snow accumulation for mountain/tundra areas
+            const slope = this.getSlopeAtNoise(x, y);
+            const snowCoverage = this.getSnowCoverage(normalizedHeight, slope);
+
+            if (snowCoverage > 0.05) {
+                this._blendedColor.lerp(this._snowColor, snowCoverage);
+            }
+
+            return this._blendedColor;
         }
 
-        // Fallback: interpolate between base and secondary color based on height
-        const color = new THREE.Color();
-        color.lerpColors(
+        // Non-biome planets: interpolate between base and secondary color
+        this._tempColor.lerpColors(
             this.config.baseColor,
             this.config.secondaryColor,
             normalizedHeight
         );
 
-        return color;
+        return this._tempColor;
     }
 
     /**
@@ -673,27 +720,343 @@ export async function createTerrainFromPreGenerated(
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geometry.computeVertexNormals();
 
-    // Create material with optional normalmap
-    const materialOptions: THREE.MeshStandardMaterialParameters = {
-        vertexColors: true,
-        flatShading: false,
-        roughness: 0.8,
-        metalness: 0.1,
-    };
+    // Triplanar texture splatting shader for realistic terrain rendering.
+    // Uses procedural hash-based noise to generate grass, rock, sand, and snow
+    // patterns. Blends based on world-space slope and altitude.
+    // Falls back to vertex-colored MeshStandardMaterial for non-biome planets.
+    let material: THREE.Material;
 
-    // Apply normalmap if available for enhanced lighting detail
-    if (normalmap) {
-        const normalmapTexture = new THREE.Texture(normalmap);
-        normalmapTexture.needsUpdate = true;
-        normalmapTexture.wrapS = THREE.RepeatWrapping;
-        normalmapTexture.wrapT = THREE.RepeatWrapping;
-        // Tile the normalmap for detail (4x repetition)
-        normalmapTexture.repeat.set(4, 4);
-        materialOptions.normalMap = normalmapTexture;
-        materialOptions.normalScale = new THREE.Vector2(0.8, 0.8);
+    if (config.hasBiomes) {
+        // Build normalmap texture if available
+        let normalmapTexture: THREE.Texture | null = null;
+        if (normalmap) {
+            normalmapTexture = new THREE.Texture(normalmap);
+            normalmapTexture.needsUpdate = true;
+            normalmapTexture.wrapS = THREE.RepeatWrapping;
+            normalmapTexture.wrapT = THREE.RepeatWrapping;
+            normalmapTexture.repeat.set(4, 4);
+        }
+
+        material = new THREE.ShaderMaterial({
+            uniforms: {
+                ...THREE.UniformsLib.lights,
+                ...THREE.UniformsLib.fog,
+                uNormalMap: { value: normalmapTexture },
+                uHasNormalMap: { value: normalmap ? 1.0 : 0.0 },
+                uHeightScale: { value: heightScale },
+                uPomScale: { value: 0.15 },       // Parallax depth scale
+                uPomSteps: { value: 4.0 },         // Ray march steps
+                uTerrainSize: { value: size },      // Terrain world size for UV mapping
+            },
+            vertexShader: `
+                #include <fog_pars_vertex>
+
+                varying vec3 vWorldPos;
+                varying vec3 vWorldNormal;
+                varying vec3 vColor;
+                varying float vHeight;
+                varying vec3 vViewDir;
+
+                void main() {
+                    vColor = color;
+                    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                    vWorldPos = worldPos.xyz;
+                    vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+                    vHeight = position.z; // Z is height before rotation
+                    vViewDir = cameraPosition - worldPos.xyz;
+
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+
+                    #include <fog_vertex>
+                }
+            `,
+            fragmentShader: `
+                // Three.js lighting includes
+                #include <common>
+                #include <lights_pars_begin>
+                #include <fog_pars_fragment>
+
+                uniform float uHeightScale;
+                uniform sampler2D uNormalMap;
+                uniform float uHasNormalMap;
+                uniform float uPomScale;
+                uniform float uPomSteps;
+                uniform float uTerrainSize;
+
+                varying vec3 vWorldPos;
+                varying vec3 vWorldNormal;
+                varying vec3 vColor;
+                varying float vHeight;
+                varying vec3 vViewDir;
+
+                // Procedural hash for texture patterns (avoids external textures)
+                float hash(vec2 p) {
+                    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                    p3 += dot(p3, p3.yzx + 33.33);
+                    return fract((p3.x + p3.y) * p3.z);
+                }
+
+                // Value noise for procedural textures
+                float valueNoise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    f = f * f * (3.0 - 2.0 * f); // smoothstep
+
+                    float a = hash(i);
+                    float b = hash(i + vec2(1.0, 0.0));
+                    float c = hash(i + vec2(0.0, 1.0));
+                    float d = hash(i + vec2(1.0, 1.0));
+
+                    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+                }
+
+                // Multi-octave noise
+                float fbmNoise(vec2 p, int octaves) {
+                    float val = 0.0;
+                    float amp = 0.5;
+                    float freq = 1.0;
+                    for (int i = 0; i < 4; i++) {
+                        if (i >= octaves) break;
+                        val += amp * valueNoise(p * freq);
+                        amp *= 0.5;
+                        freq *= 2.0;
+                    }
+                    return val;
+                }
+
+                // Triplanar sample: project noise onto all 3 axes, blend by normal
+                float triplanarNoise(vec3 worldPos, vec3 normal, float scale, int octaves) {
+                    vec3 blend = abs(normal);
+                    blend = pow(blend, vec3(4.0));
+                    blend /= (blend.x + blend.y + blend.z);
+
+                    float xProj = fbmNoise(worldPos.yz * scale, octaves);
+                    float yProj = fbmNoise(worldPos.xz * scale, octaves);
+                    float zProj = fbmNoise(worldPos.xy * scale, octaves);
+
+                    return xProj * blend.x + yProj * blend.y + zProj * blend.z;
+                }
+
+                // Procedural height field for parallax (rocky detail)
+                float pomHeightField(vec3 pos, vec3 normal) {
+                    return triplanarNoise(pos, normal, 0.8, 2);
+                }
+
+                // Parallax Occlusion Mapping: ray march through procedural height field.
+                // Offsets the world-space sample position to create apparent surface depth.
+                // Uses linear search followed by one secant refinement step.
+                vec3 parallaxOcclusionMap(vec3 worldPos, vec3 normal, vec3 viewDir, float scale, float numSteps) {
+                    // Project view direction onto surface plane for offset direction.
+                    // Remove the component along the surface normal.
+                    float NdotV = dot(normal, viewDir);
+
+                    // Skip POM for near-perpendicular views or back faces
+                    if (NdotV < 0.15) return worldPos;
+
+                    // Tangent-plane component of the view direction
+                    vec3 viewTangent = viewDir - normal * NdotV;
+                    // Scale offset: deeper at grazing angles
+                    float depthScale = scale / NdotV;
+
+                    // Step through the height field along the view tangent direction
+                    vec3 stepOffset = -viewTangent * depthScale / numSteps;
+                    vec3 currentPos = worldPos;
+                    float currentDepth = 0.0;
+                    float stepSize = 1.0 / numSteps;
+
+                    float prevHeight = 0.0;
+                    float prevDepth = 0.0;
+                    vec3 prevPos = currentPos;
+
+                    for (float i = 0.0; i < 12.0; i++) {
+                        if (i >= numSteps) break;
+                        currentDepth += stepSize;
+                        currentPos += stepOffset;
+                        float sampleHeight = pomHeightField(currentPos, normal);
+
+                        // Ray has gone below the surface
+                        if (currentDepth > sampleHeight) {
+                            // Secant interpolation for sub-step accuracy
+                            float d1 = prevHeight - prevDepth;
+                            float d2 = sampleHeight - currentDepth;
+                            float t = d1 / (d1 - d2);
+                            return mix(prevPos, currentPos, t);
+                        }
+
+                        prevHeight = sampleHeight;
+                        prevDepth = currentDepth;
+                        prevPos = currentPos;
+                    }
+                    return currentPos;
+                }
+
+                void main() {
+                    vec3 normal = normalize(vWorldNormal);
+                    float normalizedHeight = vHeight / uHeightScale;
+                    vec3 viewDir = normalize(vViewDir);
+
+                    // Distance-based POM fade: full effect close, fades at distance
+                    float viewDist = length(vViewDir);
+                    float pomFade = 1.0 - smoothstep(20.0, 50.0, viewDist);
+
+                    // Apply parallax occlusion mapping for close-up depth detail
+                    vec3 samplePos = vWorldPos;
+                    if (pomFade > 0.01) {
+                        float effectiveScale = uPomScale * pomFade;
+                        vec3 pomPos = parallaxOcclusionMap(vWorldPos, normal, viewDir, effectiveScale, uPomSteps);
+                        samplePos = pomPos;
+                    }
+
+                    // --- Normal perturbation from normalmap and POM micro-normals ---
+
+                    // 1) Sample the pre-generated normalmap if available.
+                    //    UV is derived from world XZ mapped to [0,1] over the terrain,
+                    //    multiplied by 4 for tiling (repeat 4,4 is set on the CPU side).
+                    if (uHasNormalMap > 0.5) {
+                        vec2 nmUV = (vWorldPos.xz / uTerrainSize + 0.5) * 4.0;
+                        vec3 mapNormal = texture2D(uNormalMap, nmUV).xyz * 2.0 - 1.0;
+
+                        // Blend using Reoriented Normal Mapping (RNM) technique:
+                        // Treats geometry normal as the base and adds detail from the map.
+                        // This works without an explicit TBN matrix by assuming the
+                        // normalmap is authored in tangent space with Y-up.
+                        vec3 t = normal * vec3( 1.0,  1.0,  1.0) + vec3(0.0, 0.0, 1.0);
+                        vec3 u = mapNormal * vec3(-1.0, -1.0, 1.0);
+                        normal = normalize(t * dot(t, u) - u * t.z);
+                    }
+
+                    // 2) Compute POM micro-normals from the procedural height field
+                    //    using central finite differences on pomHeightField().
+                    //    Only computed when POM is active (close enough to camera).
+                    if (pomFade > 0.01) {
+                        float eps = 0.1;
+
+                        // Sample height field at offset positions along world X and Z
+                        float hC  = pomHeightField(samplePos, normal);
+                        float hPx = pomHeightField(samplePos + vec3(eps, 0.0, 0.0), normal);
+                        float hNx = pomHeightField(samplePos - vec3(eps, 0.0, 0.0), normal);
+                        float hPz = pomHeightField(samplePos + vec3(0.0, 0.0, eps), normal);
+                        float hNz = pomHeightField(samplePos - vec3(0.0, 0.0, eps), normal);
+
+                        // Central differences give the surface gradient
+                        float dhdx = (hPx - hNx) / (2.0 * eps);
+                        float dhdz = (hPz - hNz) / (2.0 * eps);
+
+                        // Construct the perturbed normal from the gradient.
+                        // The height field is "on top of" the geometry surface,
+                        // so the micro-normal tilts away from the gradient direction.
+                        vec3 pomMicroNormal = normalize(vec3(-dhdx, 1.0, -dhdz));
+
+                        // Blend the POM micro-normal into the current normal,
+                        // weighted by pomFade so it fades out with distance.
+                        // Use a strength factor to keep the effect subtle.
+                        float pomNormalStrength = 0.6 * pomFade;
+                        normal = normalize(mix(normal, pomMicroNormal, pomNormalStrength));
+                    }
+
+                    // Slope: 0 = flat (pointing up), 1 = vertical cliff
+                    float slope = 1.0 - abs(normal.y);
+
+                    // --- Procedural texture patterns (sampled at POM-offset position) ---
+                    // Distance-based texture LOD: skip all texture noise for distant fragments
+                    float grassPattern = 1.0;
+                    float rockPattern = 1.0;
+                    float sandPattern = 1.0;
+                    float snowPattern = 1.0;
+
+                    if (viewDist < 100.0) {
+                        float texBlend = 1.0 - smoothstep(60.0, 100.0, viewDist);
+                        grassPattern = mix(1.0, triplanarNoise(samplePos, normal, 0.3, 3), texBlend);
+                        grassPattern = mix(1.0, mix(0.85, 1.15, grassPattern), texBlend);
+
+                        rockPattern = mix(1.0, triplanarNoise(samplePos, normal, 0.15, 3), texBlend);
+                        rockPattern = mix(1.0, mix(0.7, 1.3, rockPattern), texBlend);
+
+                        sandPattern = mix(1.0, triplanarNoise(samplePos, normal, 0.5, 2), texBlend);
+                        sandPattern = mix(1.0, mix(0.9, 1.1, sandPattern), texBlend);
+
+                        snowPattern = mix(1.0, triplanarNoise(samplePos, normal, 0.4, 2), texBlend);
+                        snowPattern = mix(1.0, mix(0.95, 1.05, snowPattern), texBlend);
+                    }
+
+                    // --- Splatting weights based on slope and altitude ---
+                    float rockWeight = smoothstep(0.25, 0.5, slope); // More rock on steep
+                    float snowWeight = smoothstep(0.6, 0.8, normalizedHeight) *
+                                       (1.0 - smoothstep(0.3, 0.6, slope)); // Snow on high gentle slopes
+                    float sandWeight = step(normalizedHeight, 0.15) * (1.0 - slope);
+                    float grassWeight = max(0.0, 1.0 - rockWeight - snowWeight - sandWeight);
+
+                    // Apply patterns to vertex colors
+                    vec3 grassColor = vColor * grassPattern;
+                    vec3 rockColor = vColor * rockPattern * vec3(0.85, 0.82, 0.8); // Desaturate rock
+                    vec3 sandColor = vColor * sandPattern;
+                    vec3 snowColor = mix(vColor, vec3(0.95, 0.97, 1.0), 0.7) * snowPattern;
+
+                    vec3 texturedColor = grassColor * grassWeight +
+                                         rockColor * rockWeight +
+                                         snowColor * snowWeight +
+                                         sandColor * sandWeight;
+
+                    // --- Lighting (simplified PBR-like) ---
+                    vec3 lightDir = vec3(0.0);
+                    vec3 lightColor = vec3(0.0);
+
+                    // Use first directional light
+                    #if NUM_DIR_LIGHTS > 0
+                        lightDir = normalize(directionalLights[0].direction);
+                        lightColor = directionalLights[0].color;
+                    #endif
+
+                    // Diffuse (Lambertian)
+                    float NdotL = max(dot(normal, lightDir), 0.0);
+                    vec3 diffuse = texturedColor * lightColor * NdotL;
+
+                    // Ambient (hemisphere-like)
+                    float ambientFactor = 0.15 + 0.1 * (normal.y * 0.5 + 0.5);
+                    vec3 ambient = texturedColor * ambientFactor;
+
+                    // Roughness variation: rock is rougher, snow is smoother
+                    float roughness = 0.8 * grassWeight + 0.95 * rockWeight +
+                                      0.3 * snowWeight + 0.9 * sandWeight;
+
+                    // Simple specular for snow/wet surfaces
+                    vec3 halfDir = normalize(lightDir + viewDir);
+                    float spec = pow(max(dot(normal, halfDir), 0.0), mix(8.0, 64.0, 1.0 - roughness));
+                    vec3 specular = lightColor * spec * 0.15 * (1.0 - roughness);
+
+                    vec3 finalColor = ambient + diffuse + specular;
+
+                    gl_FragColor = vec4(finalColor, 1.0);
+
+                    #include <fog_fragment>
+                }
+            `,
+            vertexColors: true,
+            lights: true,
+            fog: true,
+        });
+    } else {
+        // Non-biome planets: standard vertex-colored material
+        const materialOptions: THREE.MeshStandardMaterialParameters = {
+            vertexColors: true,
+            flatShading: false,
+            roughness: 0.8,
+            metalness: 0.1,
+        };
+
+        if (normalmap) {
+            const normalmapTexture = new THREE.Texture(normalmap);
+            normalmapTexture.needsUpdate = true;
+            normalmapTexture.wrapS = THREE.RepeatWrapping;
+            normalmapTexture.wrapT = THREE.RepeatWrapping;
+            normalmapTexture.repeat.set(4, 4);
+            materialOptions.normalMap = normalmapTexture;
+            materialOptions.normalScale = new THREE.Vector2(0.8, 0.8);
+        }
+
+        material = new THREE.MeshStandardMaterial(materialOptions);
     }
-
-    const material = new THREE.MeshStandardMaterial(materialOptions);
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
@@ -858,13 +1221,9 @@ export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: nu
     let localX = worldX;
     let localZ = worldZ;
 
-    // Wrap X
-    while (localX > halfSize) localX -= size;
-    while (localX < -halfSize) localX += size;
-
-    // Wrap Z
-    while (localZ > halfSize) localZ -= size;
-    while (localZ < -halfSize) localZ += size;
+    // Wrap X and Z using modular arithmetic
+    localX = ((localX % size) + size + halfSize) % size - halfSize;
+    localZ = ((localZ % size) + size + halfSize) % size - halfSize;
 
     // The terrain mesh is rotated:
     // 1. -90° on X axis: plane goes from XY to XZ plane
@@ -1057,7 +1416,6 @@ export function createWaterPlane(size: number, config: TerrainConfig): THREE.Mes
 
     const geometry = new THREE.PlaneGeometry(size * 1.2, size * 1.2, 32, 32);
 
-    // Create shader material for animated water with reflections
     const material = new THREE.ShaderMaterial({
         uniforms: {
             waterColor: { value: config.waterColor },
@@ -1069,19 +1427,86 @@ export function createWaterPlane(size: number, config: TerrainConfig): THREE.Mes
             varying vec2 vUv;
             varying vec3 vNormal;
             varying vec3 vWorldPosition;
+            varying float vWaveHeight;
 
             void main() {
                 vUv = uv;
-
-                // Animated wave displacement
                 vec3 pos = position;
-                float wave1 = sin(pos.x * 0.1 + time) * 0.3;
-                float wave2 = sin(pos.y * 0.15 + time * 0.8) * 0.2;
-                pos.z += wave1 + wave2;
+
+                // Wave parameters: steepness, wavelength, direction, timeScale
+                // Compute displacement and analytical derivatives in one pass
+                float totalHeight = 0.0;
+                vec3 tangentX = vec3(1.0, 0.0, 0.0);
+                vec3 tangentZ = vec3(0.0, 0.0, 1.0);
+
+                // Wave 1
+                {
+                    float Q = 0.15; float L = 12.0; vec2 d = normalize(vec2(1.0, 0.6)); float ts = 0.8;
+                    float k = 6.28318 / L;
+                    float c = sqrt(9.81 / k);
+                    float f = k * (dot(d, pos.xy) - c * time * ts);
+                    float a = Q / k;
+                    float sf = sin(f); float cf = cos(f);
+                    pos.x += d.x * a * cf;
+                    pos.z += d.y * a * cf;
+                    totalHeight += a * sf;
+                    tangentX += vec3(-Q * d.x * d.x * sf, Q * d.x * cf, -Q * d.x * d.y * sf);
+                    tangentZ += vec3(-Q * d.x * d.y * sf, Q * d.y * cf, -Q * d.y * d.y * sf);
+                }
+
+                // Wave 2
+                {
+                    float Q = 0.1; float L = 8.0; vec2 d = normalize(vec2(-0.4, 1.0)); float ts = 1.1;
+                    float k = 6.28318 / L;
+                    float c = sqrt(9.81 / k);
+                    float f = k * (dot(d, pos.xy) - c * time * ts);
+                    float a = Q / k;
+                    float sf = sin(f); float cf = cos(f);
+                    pos.x += d.x * a * cf;
+                    pos.z += d.y * a * cf;
+                    totalHeight += a * sf;
+                    tangentX += vec3(-Q * d.x * d.x * sf, Q * d.x * cf, -Q * d.x * d.y * sf);
+                    tangentZ += vec3(-Q * d.x * d.y * sf, Q * d.y * cf, -Q * d.y * d.y * sf);
+                }
+
+                // Wave 3
+                {
+                    float Q = 0.08; float L = 5.0; vec2 d = normalize(vec2(0.7, -0.5)); float ts = 1.4;
+                    float k = 6.28318 / L;
+                    float c = sqrt(9.81 / k);
+                    float f = k * (dot(d, pos.xy) - c * time * ts);
+                    float a = Q / k;
+                    float sf = sin(f); float cf = cos(f);
+                    pos.x += d.x * a * cf;
+                    pos.z += d.y * a * cf;
+                    totalHeight += a * sf;
+                    tangentX += vec3(-Q * d.x * d.x * sf, Q * d.x * cf, -Q * d.x * d.y * sf);
+                    tangentZ += vec3(-Q * d.x * d.y * sf, Q * d.y * cf, -Q * d.y * d.y * sf);
+                }
+
+                // Wave 4
+                {
+                    float Q = 0.04; float L = 3.0; vec2 d = normalize(vec2(-1.0, 0.3)); float ts = 1.8;
+                    float k = 6.28318 / L;
+                    float c = sqrt(9.81 / k);
+                    float f = k * (dot(d, pos.xy) - c * time * ts);
+                    float a = Q / k;
+                    float sf = sin(f); float cf = cos(f);
+                    pos.x += d.x * a * cf;
+                    pos.z += d.y * a * cf;
+                    totalHeight += a * sf;
+                    tangentX += vec3(-Q * d.x * d.x * sf, Q * d.x * cf, -Q * d.x * d.y * sf);
+                    tangentZ += vec3(-Q * d.x * d.y * sf, Q * d.y * cf, -Q * d.y * d.y * sf);
+                }
+
+                pos.z += totalHeight; // Y displacement mapped to Z (plane is XY)
+                vWaveHeight = totalHeight;
+
+                // Analytical normal from tangent cross product
+                vNormal = normalize(cross(tangentZ, tangentX));
 
                 vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
                 vWorldPosition = worldPosition.xyz;
-                vNormal = normalize(normalMatrix * normal);
 
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
             }
@@ -1093,26 +1518,76 @@ export function createWaterPlane(size: number, config: TerrainConfig): THREE.Mes
             varying vec2 vUv;
             varying vec3 vNormal;
             varying vec3 vWorldPosition;
+            varying float vWaveHeight;
+
+            // Simple noise for foam and caustics
+            float hash2D(vec2 p) {
+                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                p3 += dot(p3, p3.yzx + 33.33);
+                return fract((p3.x + p3.y) * p3.z);
+            }
+
+            float noise2D(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float a = hash2D(i);
+                float b = hash2D(i + vec2(1.0, 0.0));
+                float c = hash2D(i + vec2(0.0, 1.0));
+                float d = hash2D(i + vec2(1.0, 1.0));
+                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+            }
 
             void main() {
-                // Fresnel effect for reflections
+                vec3 normal = normalize(vNormal);
                 vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-                float fresnel = pow(1.0 - max(dot(viewDirection, vec3(0.0, 1.0, 0.0)), 0.0), 3.0);
 
-                // Sun reflection (specular)
-                vec3 reflectDir = reflect(-sunDirection, vec3(0.0, 1.0, 0.0));
-                float spec = pow(max(dot(viewDirection, reflectDir), 0.0), 64.0);
+                // Fresnel with wave-perturbed normal
+                float fresnel = pow(1.0 - max(dot(viewDirection, normal), 0.0), 4.0);
+                fresnel = clamp(fresnel, 0.02, 0.98);
+
+                // Sun specular reflection on waves
+                vec3 reflectDir = reflect(-sunDirection, normal);
+                float spec = pow(max(dot(viewDirection, reflectDir), 0.0), 128.0);
+                // Secondary broader specular
+                float spec2 = pow(max(dot(viewDirection, reflectDir), 0.0), 16.0);
+
+                // Depth-based color: deeper = darker blue
+                vec3 shallowColor = waterColor * 1.4 + vec3(0.05, 0.1, 0.1);
+                vec3 deepColor = waterColor * 0.5;
+                // Use world Y as depth proxy (lower = deeper)
+                float depthFactor = smoothstep(-2.0, 1.0, vWorldPosition.y);
+                vec3 baseWaterColor = mix(deepColor, shallowColor, depthFactor);
+
+                // Shore foam: white streaks at wave crests
+                float foamNoise = noise2D(vWorldPosition.xz * 0.5 + time * 0.3);
+                float foamNoise2 = noise2D(vWorldPosition.xz * 1.5 - time * 0.2);
+                float foamMask = smoothstep(0.15, 0.35, vWaveHeight) * foamNoise;
+                foamMask += smoothstep(0.1, 0.2, vWaveHeight) * foamNoise2 * 0.5;
+                foamMask = clamp(foamMask, 0.0, 1.0);
+
+                // Caustic pattern (animated Voronoi-like)
+                vec2 causticUV = vWorldPosition.xz * 0.3 + time * 0.15;
+                float c1 = noise2D(causticUV);
+                float c2 = noise2D(causticUV * 1.7 + 3.7);
+                float caustic = pow(c1 * c2, 0.8) * 0.3 * depthFactor;
 
                 // Mix water color with sky reflection
                 vec3 skyColor = vec3(0.6, 0.8, 1.0);
-                vec3 color = mix(waterColor, skyColor, fresnel * 0.5);
-                color += vec3(1.0) * spec * 0.5;
+                vec3 color = mix(baseWaterColor + caustic, skyColor, fresnel * 0.5);
 
-                // Add subtle wave pattern
-                float pattern = sin(vUv.x * 50.0 + time) * sin(vUv.y * 50.0 + time * 0.7) * 0.02;
-                color += vec3(pattern);
+                // Add foam
+                color = mix(color, vec3(0.9, 0.95, 1.0), foamMask * 0.6);
 
-                gl_FragColor = vec4(color, 0.85);
+                // Add sun specular
+                color += vec3(1.0) * spec * 0.8;
+                color += vec3(1.0, 0.95, 0.9) * spec2 * 0.15;
+
+                // Depth-based opacity: shallower = more transparent
+                float alpha = mix(0.7, 0.92, 1.0 - depthFactor);
+                alpha = max(alpha, foamMask * 0.5 + 0.5);
+
+                gl_FragColor = vec4(color, alpha);
             }
         `,
         transparent: true,
@@ -1222,47 +1697,110 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
 }
 
 /**
- * Creates a starfield background for night sky with twinkling effect
+ * Creates a realistic starfield for the night sky with twinkling,
+ * varied stellar colors, a Milky Way density band, and proper
+ * hemisphere coverage.
  */
 export function createStarfield(radius: number = 900): THREE.Points {
-    const starCount = 1500;
+    const starCount = 6000;
     const positions = new Float32Array(starCount * 3);
     const colors = new Float32Array(starCount * 3);
     const sizes = new Float32Array(starCount);
-    const twinklePhases = new Float32Array(starCount); // Random phase offset per star
+    const twinklePhases = new Float32Array(starCount);
 
-    const colorPalette = [
-        [1.0, 1.0, 1.0],       // White
-        [1.0, 0.95, 0.88],     // Warm white
-        [0.88, 0.92, 1.0],     // Cool blue-white
-        [1.0, 0.85, 0.7],      // Orange tint
-        [0.75, 0.88, 1.0],     // Blue tint
+    // Realistic stellar classification colors (spectral types)
+    const starColors = [
+        [0.62, 0.71, 1.0],   // O/B — hot blue-white
+        [0.72, 0.80, 1.0],   // B/A — blue-white
+        [0.85, 0.90, 1.0],   // A — white with blue tint
+        [1.0, 1.0, 1.0],     // A/F — pure white
+        [1.0, 0.98, 0.95],   // F — warm white
+        [1.0, 0.95, 0.85],   // G — yellow-white (Sun-like)
+        [1.0, 0.88, 0.70],   // K — orange
+        [1.0, 0.75, 0.55],   // M — red-orange
     ];
 
+    // Milky Way band: tilted great circle across the sky
+    // Stars near this band are denser
+    const milkyWayTilt = 0.4; // radians tilt from vertical
+    const milkyWayPhase = 1.2; // rotation around Y
+
     for (let i = 0; i < starCount; i++) {
-        // Distribute on a hemisphere above the camera
-        const angle = Math.random() * Math.PI * 2;
-        const elevation = Math.random() * Math.PI * 0.45 + 0.05; // 3° to 84° above horizon
-        const dist = radius * 0.6 + Math.random() * radius * 0.3;
+        // Uniform distribution on the upper hemisphere
+        const azimuth = Math.random() * Math.PI * 2;
+        // Use sqrt for uniform area distribution, minimum 1° above horizon
+        const elevationMin = 0.02;
+        const elevation = elevationMin + (Math.PI / 2 - elevationMin) * Math.sqrt(Math.random());
 
-        positions[i * 3] = Math.cos(angle) * Math.cos(elevation) * dist;
-        positions[i * 3 + 1] = Math.sin(elevation) * dist;
-        positions[i * 3 + 2] = Math.sin(angle) * Math.cos(elevation) * dist;
-
-        // Random color from palette
-        const c = colorPalette[Math.floor(Math.random() * colorPalette.length)];
-        colors[i * 3] = c[0];
-        colors[i * 3 + 1] = c[1];
-        colors[i * 3 + 2] = c[2];
-
-        // Varying star sizes
-        const sizeRandom = Math.random();
-        if (sizeRandom < 0.7) {
-            sizes[i] = 1.0 + Math.random() * 1.5;
-        } else if (sizeRandom < 0.93) {
-            sizes[i] = 2.5 + Math.random() * 2.0;
+        // Milky Way density boost: calculate angular distance from the MW band
+        const x0 = Math.cos(azimuth) * Math.cos(elevation);
+        const y0 = Math.sin(elevation);
+        const z0 = Math.sin(azimuth) * Math.cos(elevation);
+        // Rotate point to MW frame
+        const cosT = Math.cos(milkyWayTilt);
+        const sinT = Math.sin(milkyWayTilt);
+        const cosP = Math.cos(milkyWayPhase);
+        const sinP = Math.sin(milkyWayPhase);
+        const rx = x0 * cosP + z0 * sinP;
+        const ry = y0;
+        const rz = -x0 * sinP + z0 * cosP;
+        const ry2 = ry * cosT - rz * sinT;
+        // Distance from MW plane (ry2 ≈ 0 means on the MW band)
+        const mwDist = Math.abs(ry2);
+        // Probability of keeping this star (higher near MW band)
+        const mwDensity = 1.0 + 2.5 * Math.exp(-mwDist * mwDist * 25);
+        // Reject some stars far from MW to create density contrast
+        if (Math.random() > mwDensity / 3.5) {
+            // Redistribute rejected star closer to MW band
+            const jitter = (Math.random() - 0.5) * 0.3;
+            const newAz = azimuth + jitter;
+            const newEl = Math.max(elevationMin, elevation * 0.7 + 0.3);
+            const dist = radius * 0.65 + Math.random() * radius * 0.3;
+            positions[i * 3] = Math.cos(newAz) * Math.cos(newEl) * dist;
+            positions[i * 3 + 1] = Math.sin(newEl) * dist;
+            positions[i * 3 + 2] = Math.sin(newAz) * Math.cos(newEl) * dist;
         } else {
-            sizes[i] = 4.5 + Math.random() * 3.0;
+            const dist = radius * 0.65 + Math.random() * radius * 0.3;
+            positions[i * 3] = Math.cos(azimuth) * Math.cos(elevation) * dist;
+            positions[i * 3 + 1] = Math.sin(elevation) * dist;
+            positions[i * 3 + 2] = Math.sin(azimuth) * Math.cos(elevation) * dist;
+        }
+
+        // Star color — weighted toward white/blue-white (most common visible stars)
+        const colorRoll = Math.random();
+        let c: number[];
+        if (colorRoll < 0.05) c = starColors[0];       // rare hot blue
+        else if (colorRoll < 0.15) c = starColors[1];   // blue-white
+        else if (colorRoll < 0.30) c = starColors[2];   // white-blue
+        else if (colorRoll < 0.50) c = starColors[3];   // pure white
+        else if (colorRoll < 0.65) c = starColors[4];   // warm white
+        else if (colorRoll < 0.80) c = starColors[5];   // yellow-white
+        else if (colorRoll < 0.92) c = starColors[6];   // orange
+        else c = starColors[7];                          // red-orange
+
+        // Slight per-star color variation
+        const v = 0.04;
+        colors[i * 3]     = Math.min(1, c[0] + (Math.random() - 0.5) * v);
+        colors[i * 3 + 1] = Math.min(1, c[1] + (Math.random() - 0.5) * v);
+        colors[i * 3 + 2] = Math.min(1, c[2] + (Math.random() - 0.5) * v);
+
+        // Star magnitude distribution: many faint, few bright
+        const magRoll = Math.random();
+        if (magRoll < 0.55) {
+            sizes[i] = 0.8 + Math.random() * 1.0;       // Faint (mag 5-6)
+        } else if (magRoll < 0.80) {
+            sizes[i] = 1.8 + Math.random() * 1.2;       // Moderate (mag 3-4)
+        } else if (magRoll < 0.93) {
+            sizes[i] = 3.0 + Math.random() * 1.5;       // Bright (mag 1-2)
+        } else if (magRoll < 0.985) {
+            sizes[i] = 4.5 + Math.random() * 2.0;       // Very bright (mag 0-1)
+        } else {
+            sizes[i] = 6.5 + Math.random() * 2.5;       // Brilliant (like Sirius/Vega)
+        }
+
+        // Stars near Milky Way band tend to be fainter (distant background stars)
+        if (mwDist < 0.15) {
+            sizes[i] *= 0.6 + Math.random() * 0.4;
         }
 
         twinklePhases[i] = Math.random() * Math.PI * 2;
@@ -1285,13 +1823,17 @@ export function createStarfield(radius: number = 900): THREE.Points {
             uniform float uTime;
             varying vec3 vColor;
             varying float vTwinkle;
+            varying float vBrightness;
 
             void main() {
                 vColor = color;
-                // Twinkle: slow sine wave with per-star phase offset
-                vTwinkle = 0.7 + 0.3 * sin(uTime * 1.5 + aPhase * 6.2831);
+                // Twinkle: gentle scintillation, brighter stars twinkle less
+                float twinkleAmt = 0.15 / (1.0 + aSize * 0.3);
+                vTwinkle = 1.0 - twinkleAmt + twinkleAmt * sin(uTime * 2.0 + aPhase * 6.2831);
+                vBrightness = aSize / 6.0; // Normalized brightness for glow
                 vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                gl_PointSize = aSize * vTwinkle;
+                // Bright stars get a slight size boost
+                gl_PointSize = aSize * (0.9 + 0.1 * vTwinkle);
                 gl_Position = projectionMatrix * mvPosition;
             }
         `,
@@ -1299,13 +1841,22 @@ export function createStarfield(radius: number = 900): THREE.Points {
             uniform float uOpacity;
             varying vec3 vColor;
             varying float vTwinkle;
+            varying float vBrightness;
 
             void main() {
-                // Soft circular point
                 float dist = length(gl_PointCoord - vec2(0.5));
                 if (dist > 0.5) discard;
-                float alpha = smoothstep(0.5, 0.15, dist) * vTwinkle * uOpacity;
-                gl_FragColor = vec4(vColor, alpha);
+
+                // Core: bright center with soft glow falloff
+                float core = smoothstep(0.5, 0.05, dist);
+                // Glow: extended halo for brighter stars
+                float glow = exp(-dist * dist * 12.0) * vBrightness * 0.6;
+
+                float alpha = (core + glow) * vTwinkle * uOpacity;
+                // Brighter stars get a whiter core (color desaturation at center)
+                vec3 coreColor = mix(vColor, vec3(1.0), core * vBrightness * 0.4);
+
+                gl_FragColor = vec4(coreColor, alpha);
             }
         `,
         transparent: true,

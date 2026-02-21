@@ -1,0 +1,32 @@
+{
+  "planet": "earth",
+  "type": "terrestrial",
+  "generation": {
+    "resolution": 2048,
+    "terrainScale": 1.5,
+    "roughness": 0.7,
+    "erosionIntensity": 0.8,
+    "generationTime": 30.504
+  },
+  "heightmap": {
+    "min": 0.44451600313186646,
+    "max": 1,
+    "avg": 0.8098814049385084
+  },
+  "config": {
+    "gravity": 9.81,
+    "hasAtmosphere": true,
+    "hasWater": true,
+    "temperature": 288,
+    "hasBiomes": true
+  },
+  "water": {
+    "seaLevel": 0.25,
+    "rivers": [],
+    "waterBodies": []
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

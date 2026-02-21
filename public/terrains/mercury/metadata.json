@@ -1,0 +1,28 @@
+{
+  "planet": "mercury",
+  "type": "terrestrial",
+  "generation": {
+    "resolution": 2048,
+    "terrainScale": 0.5,
+    "roughness": 0.4,
+    "erosionIntensity": 0,
+    "generationTime": 8.47
+  },
+  "heightmap": {
+    "min": 0.10021121799945831,
+    "max": 0.3712211847305298,
+    "avg": 0.22259396109425822
+  },
+  "config": {
+    "gravity": 3.7,
+    "hasAtmosphere": false,
+    "hasWater": false,
+    "temperature": 440,
+    "hasBiomes": false
+  },
+  "water": null,
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

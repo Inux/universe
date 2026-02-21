@@ -1,0 +1,241 @@
+{
+  "planet": "pluto",
+  "type": "dwarf",
+  "generation": {
+    "resolution": 2048,
+    "terrainScale": 0.7,
+    "roughness": 0.4,
+    "erosionIntensity": 0.1,
+    "generationTime": 29.558
+  },
+  "heightmap": {
+    "min": 0.21726155281066895,
+    "max": 0.5301029682159424,
+    "avg": 0.3657267276632119
+  },
+  "config": {
+    "gravity": 0.62,
+    "hasAtmosphere": true,
+    "hasWater": true,
+    "temperature": 44,
+    "hasBiomes": false
+  },
+  "water": {
+    "seaLevel": 0.25,
+    "rivers": [],
+    "waterBodies": [
+      {
+        "id": 0,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 1375,
+        "bounds": {
+          "minX": 0,
+          "minY": 16,
+          "maxX": 39,
+          "maxY": 67
+        },
+        "coastlinePoints": [
+          {
+            "x": 6,
+            "y": 16
+          },
+          {
+            "x": 1,
+            "y": 18
+          },
+          {
+            "x": 11,
+            "y": 19
+          },
+          {
+            "x": 16,
+            "y": 22
+          },
+          {
+            "x": 21,
+            "y": 25
+          },
+          {
+            "x": 25,
+            "y": 29
+          },
+          {
+            "x": 28,
+            "y": 34
+          },
+          {
+            "x": 33,
+            "y": 37
+          },
+          {
+            "x": 37,
+            "y": 41
+          },
+          {
+            "x": 37,
+            "y": 47
+          },
+          {
+            "x": 35,
+            "y": 52
+          },
+          {
+            "x": 16,
+            "y": 58
+          },
+          {
+            "x": 1,
+            "y": 59
+          },
+          {
+            "x": 22,
+            "y": 59
+          },
+          {
+            "x": 6,
+            "y": 60
+          },
+          {
+            "x": 4,
+            "y": 61
+          },
+          {
+            "x": 32,
+            "y": 63
+          },
+          {
+            "x": 31,
+            "y": 65
+          },
+          {
+            "x": 29,
+            "y": 67
+          }
+        ]
+      },
+      {
+        "id": 1,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 213,
+        "bounds": {
+          "minX": 2032,
+          "minY": 557,
+          "maxX": 2047,
+          "maxY": 584
+        },
+        "coastlinePoints": [
+          {
+            "x": 2046,
+            "y": 562
+          },
+          {
+            "x": 2043,
+            "y": 567
+          },
+          {
+            "x": 2038,
+            "y": 570
+          },
+          {
+            "x": 2035,
+            "y": 574
+          },
+          {
+            "x": 2043,
+            "y": 577
+          },
+          {
+            "x": 2032,
+            "y": 580
+          },
+          {
+            "x": 2035,
+            "y": 582
+          },
+          {
+            "x": 2038,
+            "y": 584
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 160,
+        "bounds": {
+          "minX": 2040,
+          "minY": 1144,
+          "maxX": 2047,
+          "maxY": 1181
+        },
+        "coastlinePoints": [
+          {
+            "x": 2046,
+            "y": 1145
+          },
+          {
+            "x": 2044,
+            "y": 1150
+          },
+          {
+            "x": 2044,
+            "y": 1155
+          },
+          {
+            "x": 2044,
+            "y": 1161
+          },
+          {
+            "x": 2041,
+            "y": 1166
+          },
+          {
+            "x": 2042,
+            "y": 1171
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "ocean",
+        "waterLevel": 0.25,
+        "area": 113,
+        "bounds": {
+          "minX": 2040,
+          "minY": 1343,
+          "maxX": 2047,
+          "maxY": 1363
+        },
+        "coastlinePoints": [
+          {
+            "x": 2044,
+            "y": 1343
+          },
+          {
+            "x": 2041,
+            "y": 1347
+          },
+          {
+            "x": 2041,
+            "y": 1352
+          },
+          {
+            "x": 2043,
+            "y": 1358
+          },
+          {
+            "x": 2044,
+            "y": 1362
+          }
+        ]
+      }
+    ]
+  },
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

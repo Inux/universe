@@ -265,24 +265,76 @@ export class HydraulicErosion {
 
 /**
  * Thermal erosion - simulates rock weathering and talus slopes
+ * Supports variable rock hardness for realistic cliff/slope formation
  */
 export class ThermalErosion {
     private width: number;
     private height: number;
     private heightmap: Float32Array;
-    private talusAngle: number = 0.7; // Maximum stable slope angle (in height/distance)
+    private hardnessMap: Float32Array;
+    private baseTalus: number = 0.4; // Minimum talus angle (soft rock)
+    private hardnessTalusRange: number = 0.8; // Additional talus for hard rock
 
-    constructor(heightmapData: HeightmapData) {
+    // Seeded PRNG for hardness map generation
+    private rngState: number;
+
+    private heightmapBuffer: Float32Array;
+
+    constructor(heightmapData: HeightmapData, seed: number = 137) {
         this.width = heightmapData.width;
         this.height = heightmapData.height;
         this.heightmap = new Float32Array(heightmapData.data);
+        this.heightmapBuffer = new Float32Array(this.width * this.height);
+        this.rngState = seed;
+        this.hardnessMap = this.generateHardnessMap();
+    }
+
+    private nextRandom(): number {
+        this.rngState = (this.rngState * 9301 + 49297) % 233280;
+        return this.rngState / 233280;
+    }
+
+    /**
+     * Generate a noise-based rock hardness map.
+     * Hardness varies with depth (higher elevation = softer sedimentary layers)
+     * and spatially (noise-driven geological variation).
+     * Values range from 0 (soft sandstone) to 1 (hard granite).
+     */
+    private generateHardnessMap(): Float32Array {
+        const map = new Float32Array(this.width * this.height);
+
+        // Simple multi-octave noise for hardness variation
+        // Uses a different frequency than terrain for geological realism
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const idx = y * this.width + x;
+                const h = this.heightmap[idx];
+
+                // Spatial variation: pseudo-noise using hash
+                const hash1 = Math.sin(x * 0.037 + y * 0.071) * 43758.5453;
+                const noise1 = hash1 - Math.floor(hash1);
+                const hash2 = Math.sin(x * 0.013 + y * 0.029) * 23421.631;
+                const noise2 = hash2 - Math.floor(hash2);
+
+                // Combine spatial noise at two scales
+                const spatialHardness = noise1 * 0.6 + noise2 * 0.4;
+
+                // Depth factor: harder rock at lower elevations (bedrock),
+                // softer at higher elevations (sedimentary/weathered)
+                const depthFactor = 1.0 - h * 0.4;
+
+                map[idx] = Math.max(0, Math.min(1, spatialHardness * depthFactor));
+            }
+        }
+
+        return map;
     }
 
     /**
      * Run thermal erosion simulation
      */
     public erode(numIterations: number = 10): HeightmapData {
-        console.log(`Running thermal erosion for ${numIterations} iterations...`);
+        console.log(`Running thermal erosion for ${numIterations} iterations (with rock hardness)...`);
 
         for (let iteration = 0; iteration < numIterations; iteration++) {
             this.thermalStep();
@@ -296,18 +348,27 @@ export class ThermalErosion {
     }
 
     /**
-     * Single iteration of thermal erosion
+     * Single iteration of thermal erosion with variable hardness
      */
     private thermalStep(): void {
-        const newHeightmap = new Float32Array(this.heightmap);
+        this.heightmapBuffer.set(this.heightmap);
+        const newHeightmap = this.heightmapBuffer;
 
         for (let y = 1; y < this.height - 1; y++) {
             for (let x = 1; x < this.width - 1; x++) {
                 const idx = y * this.width + x;
                 const currentHeight = this.heightmap[idx];
+                const currentHardness = this.hardnessMap[idx];
+
+                // Talus angle varies with rock hardness:
+                // Hard rock (hardness=1): steep stable slopes (cliffs)
+                // Soft rock (hardness=0): gentle slopes (rounded hills)
+                const talusAngle = this.baseTalus + currentHardness * this.hardnessTalusRange;
+
+                // Transfer rate also varies: hard rock erodes slower
+                const transferRate = 0.5 * (1 - currentHardness * 0.7);
 
                 let totalDiff = 0;
-                // Collect steep neighbor indices in a single pass
                 let steepCount = 0;
                 const steepIndices: number[] = [];
                 const steepDiffs: number[] = [];
@@ -323,8 +384,7 @@ export class ThermalErosion {
 
                         const diff = currentHeight - this.heightmap[nIdx];
 
-                        // Only consider neighbors exceeding talus angle
-                        if (diff > this.talusAngle) {
+                        if (diff > talusAngle) {
                             totalDiff += diff;
                             steepIndices[steepCount] = nIdx;
                             steepDiffs[steepCount] = diff;
@@ -335,11 +395,10 @@ export class ThermalErosion {
 
                 if (steepCount > 0) {
                     const avgDiff = totalDiff / steepCount;
-                    const transferAmount = avgDiff * 0.5;
+                    const transferAmount = avgDiff * transferRate;
 
                     newHeightmap[idx] -= transferAmount;
 
-                    // Distribute proportionally to the steep neighbors only
                     for (let i = 0; i < steepCount; i++) {
                         newHeightmap[steepIndices[i]] += transferAmount * (steepDiffs[i] / totalDiff);
                     }

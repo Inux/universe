@@ -1,0 +1,28 @@
+{
+  "planet": "venus",
+  "type": "terrestrial",
+  "generation": {
+    "resolution": 2048,
+    "terrainScale": 0.8,
+    "roughness": 0.5,
+    "erosionIntensity": 0.3,
+    "generationTime": 14.471
+  },
+  "heightmap": {
+    "min": 0.22149795293807983,
+    "max": 0.6337900161743164,
+    "avg": 0.41305385734235145
+  },
+  "config": {
+    "gravity": 8.87,
+    "hasAtmosphere": true,
+    "hasWater": false,
+    "temperature": 737,
+    "hasBiomes": false
+  },
+  "water": null,
+  "files": {
+    "heightmap": "heightmap.png",
+    "normalmap": "normalmap.png"
+  }
+}

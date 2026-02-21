@@ -63,6 +63,7 @@ export function createStarfield(scene: THREE.Scene, starCount: number = 10000): 
         transparent: true,
         opacity: 0.9,
         sizeAttenuation: false, // Stars stay same size regardless of distance
+        depthWrite: false,
     });
 
     const stars = new THREE.Points(geometry, material);
@@ -138,7 +139,7 @@ export function createSpaceBackground(scene: THREE.Scene): THREE.Mesh {
     const material = new THREE.MeshBasicMaterial({
         map: texture,
         side: THREE.BackSide,
-        transparent: true,
+        depthWrite: false,
     });
 
     const background = new THREE.Mesh(geometry, material);
@@ -181,6 +182,7 @@ export function createDistantGalaxies(scene: THREE.Scene, count: number = 50): T
             transparent: true,
             opacity: 0.3 + Math.random() * 0.4,
             color: new THREE.Color().setHSL(Math.random() * 0.1 + 0.6, 0.3, 0.7),
+            depthWrite: false,
         });
 
         const sprite = new THREE.Sprite(material);

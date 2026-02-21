@@ -154,4 +154,96 @@ export class NoiseGenerator {
 
         return total;
     }
+
+    /**
+     * Swiss Turbulence noise - derivative-based erosion-like terrain.
+     * Suppresses fine detail in valleys (where derivatives are large) while
+     * preserving crisp ridgelines on peaks. Produces naturally rounded peaks
+     * instead of the knife-edge artifacts from ridgedMultifractal.
+     * Based on Giliam de Carpentier's Scape procedural extensions.
+     */
+    public swissTurbulence(
+        x: number, y: number,
+        octaves: number = 8,
+        lacunarity: number = 2.0,
+        gain: number = 0.5,
+        warp: number = 0.15
+    ): number {
+        let sum = 0;
+        let freq = 1.0;
+        let amp = 1.0;
+        let maxAmp = 0;
+        let dsumX = 0;
+        let dsumY = 0;
+
+        const epsilon = 0.001;
+
+        for (let i = 0; i < octaves; i++) {
+            // Warp input coordinates by accumulated derivatives
+            const nx = (x + dsumX * warp) * freq;
+            const ny = (y + dsumY * warp) * freq;
+
+            // Get noise value
+            const n = this.noise2D(nx, ny);
+
+            // Compute pseudo-derivatives via central differences
+            const dx = this.noise2D(nx + epsilon, ny) - this.noise2D(nx - epsilon, ny);
+            const dy = this.noise2D(nx, ny + epsilon) - this.noise2D(nx, ny - epsilon);
+
+            // Accumulate derivatives
+            dsumX += dx * amp;
+            dsumY += dy * amp;
+
+            // Key insight: divide by (1 + dot(dsum, dsum))
+            // Suppresses detail on slopes, preserves on peaks/ridges
+            sum += amp * n / (1 + dsumX * dsumX + dsumY * dsumY);
+            maxAmp += amp;
+
+            freq *= lacunarity;
+            amp *= gain;
+        }
+
+        return sum / maxAmp;
+    }
+
+    /**
+     * Hybrid Multifractal noise - smoothly transitions between fBm (smooth) at
+     * low elevations and ridged multifractal (rough) at high elevations.
+     * Creates realistic terrain where lowlands are gentle and highlands are rugged.
+     * Based on Musgrave's foundational fractal terrain work.
+     */
+    public hybridMultifractal(
+        x: number, y: number,
+        octaves: number = 8,
+        persistence: number = 0.25,
+        lacunarity: number = 2.0,
+        offset: number = 0.7
+    ): number {
+        let freq = 1.0;
+        let amp = 1.0;
+
+        // First octave - unweighted
+        let result = (this.noise2D(x * freq, y * freq) + offset) * amp;
+        let weight = result;
+        freq *= lacunarity;
+
+        for (let i = 1; i < octaves; i++) {
+            // Clamp weight to [0, 1]
+            weight = Math.min(weight, 1.0);
+
+            const signal = (this.noise2D(x * freq, y * freq) + offset) * amp;
+
+            // Weight controls how much this octave contributes
+            // High areas (weight > 1) get full detail
+            // Low areas (weight < 1) get smoothed
+            result += weight * signal;
+            weight *= signal;
+
+            freq *= lacunarity;
+            amp *= persistence;
+        }
+
+        // Normalize to roughly -1 to 1 range, clamped to guarantee bounds
+        return Math.max(-1, Math.min(1, result * 0.5 - 0.5));
+    }
 }

@@ -1,6 +1,11 @@
 import { ref, shallowRef, type Ref } from 'vue';
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
     TerrainGenerator,
     TERRAIN_CONFIGS,
@@ -51,6 +56,7 @@ export function useSurfaceView(
     let rimLight: THREE.DirectionalLight | null = null;
     let dustSystem: THREE.Points | null = null;
     let propsGroup: THREE.Group | null = null;
+    let composer: EffectComposer | null = null;
 
     // Cached scene references (avoid per-frame searches)
     let hemiLight: THREE.HemisphereLight | null = null;
@@ -107,6 +113,20 @@ export function useSurfaceView(
     const pitchQuaternion = new THREE.Quaternion();
     const upVector = new THREE.Vector3(0, 1, 0);
     const forwardVector = new THREE.Vector3(0, 0, -1);
+
+    // Pre-allocated vectors for spherical physics (reused every frame)
+    const sphereUp = new THREE.Vector3();
+    const sphereCameraDir = new THREE.Vector3();
+    const sphereForward = new THREE.Vector3();
+    const sphereRight = new THREE.Vector3();
+    const sphereMoveDir = new THREE.Vector3();
+    const sphereNewUp = new THREE.Vector3();
+    const sphereWorldUp = new THREE.Vector3(0, 1, 0);
+    const sphereAxis = new THREE.Vector3();
+    const sphereQuat = new THREE.Quaternion();
+
+    // Pre-allocated vector for flat terrain forward direction (reused every frame)
+    const flatForwardDir = new THREE.Vector3();
 
     // Performance and physics state
     let lastTime = 0;
@@ -188,10 +208,10 @@ export function useSurfaceView(
         sunLight.shadow.mapSize.height = 2048;
         sunLight.shadow.camera.near = 0.5;
         sunLight.shadow.camera.far = 500;
-        sunLight.shadow.camera.left = -100;
-        sunLight.shadow.camera.right = 100;
-        sunLight.shadow.camera.top = 100;
-        sunLight.shadow.camera.bottom = -100;
+        sunLight.shadow.camera.left = -50;
+        sunLight.shadow.camera.right = 50;
+        sunLight.shadow.camera.top = 50;
+        sunLight.shadow.camera.bottom = -50;
         scene.value.add(sunLight);
 
         // Rim light (opposite sun) for subtle edge lighting
@@ -202,6 +222,21 @@ export function useSurfaceView(
         // Hemisphere light for sky/ground color bleeding
         hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.4);
         scene.value.add(hemiLight);
+
+        // Set up SSAO post-processing for contact shadows
+        composer = new EffectComposer(renderer.value);
+        const renderPass = new RenderPass(scene.value, camera.value);
+        composer.addPass(renderPass);
+
+        const ssaoPass = new SSAOPass(scene.value, camera.value, width, height);
+        ssaoPass.kernelRadius = 12;
+        ssaoPass.minDistance = 0.001;
+        ssaoPass.maxDistance = 0.15;
+        (ssaoPass as any).output = SSAOPass.OUTPUT.Default;
+        composer.addPass(ssaoPass);
+
+        const outputPass = new OutputPass();
+        composer.addPass(outputPass);
 
         return true;
     }
@@ -244,6 +279,15 @@ export function useSurfaceView(
             dustSystem = null;
         }
         if (propsGroup) {
+            // Dispose all props (InstancedMesh or regular Mesh) to prevent GPU resource leaks on re-entry
+            propsGroup.children.forEach((child) => {
+                if (child instanceof THREE.InstancedMesh || child instanceof THREE.Mesh) {
+                    child.geometry.dispose();
+                    if (child.material instanceof THREE.Material) {
+                        child.material.dispose();
+                    }
+                }
+            });
             scene.value.remove(propsGroup);
             propsGroup = null;
         }
@@ -312,12 +356,16 @@ export function useSurfaceView(
             }
         }
 
-        // Exponential fog for planets with atmosphere (avoids banding unlike linear fog)
+        // Aerial perspective fog for planets with atmosphere
+        // Tints distant terrain toward a blue-shifted atmosphere color,
+        // creating a sense of depth and scale (Rayleigh scattering approximation)
         if (scene.value) {
             if (config.atmosphereColor) {
-                // Use FogExp2 - exponential squared fog for smooth distance fade
+                // Mix atmosphere color with a blue tint for Rayleigh-like effect
                 const fogColor = config.atmosphereColor.clone().multiplyScalar(0.4);
-                scene.value.fog = new THREE.FogExp2(fogColor.getHex(), 0.0018);
+                const blueShift = new THREE.Color(0.5, 0.6, 0.85);
+                fogColor.lerp(blueShift, 0.3); // 30% blue shift for aerial perspective
+                scene.value.fog = new THREE.FogExp2(fogColor.getHex(), 0.0016);
             } else {
                 // No atmosphere = no fog, just darkness
                 scene.value.fog = null;
@@ -349,6 +397,7 @@ export function useSurfaceView(
         }
 
         // Props: biome-specific vegetation and details (using InstancedMesh for performance)
+        // Uses Poisson disk sampling for natural spacing and slope-based filtering
         if (scene.value && terrainMesh) {
             propsGroup = new THREE.Group();
             scene.value.add(propsGroup);
@@ -357,22 +406,120 @@ export function useSurfaceView(
 
             const dummy = new THREE.Object3D(); // Reusable transform helper
 
+            /**
+             * Calculate terrain slope at a world position (0 = flat, 1+ = very steep)
+             * Uses finite differences on the height lookup
+             */
+            const getSlopeAt = (wx: number, wz: number, step: number = 2): number => {
+                const hC = getTerrainHeight(terrainMesh!, wx, wz);
+                const hR = getTerrainHeight(terrainMesh!, wx + step, wz);
+                const hL = getTerrainHeight(terrainMesh!, wx - step, wz);
+                const hU = getTerrainHeight(terrainMesh!, wx, wz - step);
+                const hD = getTerrainHeight(terrainMesh!, wx, wz + step);
+                const dx = (hR - hL) / (2 * step);
+                const dz = (hD - hU) / (2 * step);
+                return Math.sqrt(dx * dx + dz * dz);
+            };
+
+            /**
+             * Bridson's Poisson disk sampling — guarantees minimum distance
+             * between samples while maintaining natural distribution.
+             * Returns points in [-half, half] x [-half, half].
+             */
+            const poissonDiskSample = (minDist: number, maxAttempts: number = 30): Array<{ x: number; z: number }> => {
+                const cellSize = minDist / Math.SQRT2;
+                const gridW = Math.ceil(size / cellSize);
+                const gridH = Math.ceil(size / cellSize);
+                const grid: number[] = new Array(gridW * gridH).fill(-1);
+                const points: Array<{ x: number; z: number }> = [];
+                const active: number[] = [];
+
+                // Seed with first point
+                const first = { x: Math.random() * size - half, z: Math.random() * size - half };
+                points.push(first);
+                active.push(0);
+                const gi = Math.floor((first.x + half) / cellSize);
+                const gj = Math.floor((first.z + half) / cellSize);
+                if (gi >= 0 && gi < gridW && gj >= 0 && gj < gridH) {
+                    grid[gj * gridW + gi] = 0;
+                }
+
+                while (active.length > 0) {
+                    const aIdx = Math.floor(Math.random() * active.length);
+                    const point = points[active[aIdx]];
+                    let found = false;
+
+                    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = minDist + Math.random() * minDist;
+                        const nx = point.x + Math.cos(angle) * dist;
+                        const nz = point.z + Math.sin(angle) * dist;
+
+                        if (nx < -half || nx >= half || nz < -half || nz >= half) continue;
+
+                        const ngi = Math.floor((nx + half) / cellSize);
+                        const ngj = Math.floor((nz + half) / cellSize);
+
+                        // Check 5x5 neighborhood for conflicts
+                        let tooClose = false;
+                        for (let dy = -2; dy <= 2 && !tooClose; dy++) {
+                            for (let dx = -2; dx <= 2 && !tooClose; dx++) {
+                                const ci = ngi + dx;
+                                const cj = ngj + dy;
+                                if (ci < 0 || ci >= gridW || cj < 0 || cj >= gridH) continue;
+                                const cellIdx = grid[cj * gridW + ci];
+                                if (cellIdx >= 0) {
+                                    const p = points[cellIdx];
+                                    const ddx = nx - p.x;
+                                    const ddz = nz - p.z;
+                                    if (ddx * ddx + ddz * ddz < minDist * minDist) {
+                                        tooClose = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!tooClose) {
+                            points.push({ x: nx, z: nz });
+                            active.push(points.length - 1);
+                            if (ngi >= 0 && ngi < gridW && ngj >= 0 && ngj < gridH) {
+                                grid[ngj * gridW + ngi] = points.length - 1;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        // Swap-and-pop: O(1) removal instead of O(n) splice
+                        active[aIdx] = active[active.length - 1];
+                        active.pop();
+                    }
+                }
+
+                return points;
+            };
+
             if (planetName === 'earth' && config.hasBiomes) {
                 const generator = new TerrainGenerator(config, planetName.length * 1000);
 
-                // Sample biomes and collect positions per type
                 const treeFoliagePositions: { x: number; y: number; z: number; s: number }[] = [];
                 const treeTrunkPositions: { x: number; y: number; z: number; s: number }[] = [];
                 const bushPositions: { x: number; y: number; z: number; s: number }[] = [];
                 const cactusPositions: { x: number; y: number; z: number; s: number }[] = [];
                 const rockPositions: { x: number; y: number; z: number; s: number }[] = [];
                 const icePositions: { x: number; y: number; z: number; s: number }[] = [];
+                const palmPositions: { x: number; y: number; z: number; s: number }[] = [];
 
-                const propCount = 300;
-                for (let i = 0; i < propCount; i++) {
-                    const x = (Math.random() * 2 - 1) * half;
-                    const z = (Math.random() * 2 - 1) * half;
+                // Generate Poisson samples with biome-appropriate spacing
+                // Use moderate spacing — tighter than random for better coverage
+                const samples = poissonDiskSample(18, 25);
+
+                for (const pt of samples) {
+                    const x = pt.x;
+                    const z = pt.z;
                     const y = getTerrainHeight(terrainMesh, x, z);
+                    const slope = getSlopeAt(x, z);
 
                     const nx = (x / size + 0.5) * 3;
                     const nz = (z / size + 0.5) * 3;
@@ -382,19 +529,23 @@ export function useSurfaceView(
 
                     switch (biome) {
                         case BiomeType.FOREST:
-                            if (Math.random() > 0.25) {
+                            // Trees: no steep slopes, not too high
+                            if (slope < 0.5 && Math.random() > 0.15) {
                                 const s = 0.7 + Math.random() * 0.6;
                                 treeFoliagePositions.push({ x, y: y + 2.0 * s, z, s });
                                 treeTrunkPositions.push({ x, y: y + 0.8 * s, z, s });
+                            } else if (slope >= 0.5 && slope < 1.0 && Math.random() > 0.6) {
+                                // Bushes on moderate slopes in forest
+                                bushPositions.push({ x, y: y + 0.3, z, s: 0.3 + Math.random() * 0.3 });
                             }
                             break;
                         case BiomeType.PLAINS:
-                            if (Math.random() > 0.65) {
+                            if (slope < 0.4 && Math.random() > 0.5) {
                                 bushPositions.push({ x, y: y + 0.3, z, s: 0.4 + Math.random() * 0.4 });
                             }
                             break;
                         case BiomeType.DESERT:
-                            if (Math.random() > 0.55) {
+                            if (slope < 0.6 && Math.random() > 0.45) {
                                 if (Math.random() > 0.5) {
                                     cactusPositions.push({ x, y: y + 1, z, s: 0.8 + Math.random() * 0.4 });
                                 } else {
@@ -403,26 +554,167 @@ export function useSurfaceView(
                             }
                             break;
                         case BiomeType.TUNDRA:
-                            if (Math.random() > 0.65) {
+                            if (slope < 0.7 && Math.random() > 0.55) {
                                 icePositions.push({ x, y: y + 0.75, z, s: 0.6 + Math.random() * 0.5 });
                             }
                             break;
                         case BiomeType.MOUNTAIN:
-                            if (Math.random() > 0.45) {
+                            // Rocks more likely on steep slopes (scree fields)
+                            if (slope > 0.3 && Math.random() > 0.3) {
+                                // Scree: smaller rocks clustered at base of steep areas
+                                const screeScale = 0.4 + Math.random() * 0.6;
+                                rockPositions.push({ x, y, z, s: screeScale });
+                            } else if (Math.random() > 0.5) {
+                                // Boulders on moderate mountain slopes
                                 rockPositions.push({ x, y, z, s: 0.8 + Math.random() * 1.2 });
                             }
                             break;
                         case BiomeType.BEACH:
-                            if (Math.random() > 0.85) {
-                                treeTrunkPositions.push({ x, y: y + 1.5, z, s: 0.8 + Math.random() * 0.3 });
+                            if (slope < 0.3 && Math.random() > 0.8) {
+                                const s = 0.8 + Math.random() * 0.3;
+                                palmPositions.push({ x, y: y + 2.0 * s, z, s });
+                                treeTrunkPositions.push({ x, y: y + 0.8 * s, z, s });
                             }
                             break;
                     }
                 }
 
+                // --- Ecosystem simulation: plant competition ---
+                // Trees compete for space; weaker ones die, creating natural
+                // forest structure with clearings, canopy gaps, and size variation.
+                // Also spawns understory bushes near surviving large trees.
+                {
+                    interface EcoPlant {
+                        idx: number;       // Index into treeFoliagePositions
+                        x: number;
+                        z: number;
+                        radius: number;    // Competition radius
+                        vigor: number;     // Growth strength (0-1)
+                    }
+
+                    // Build list of competing plants (trees only)
+                    const plants: EcoPlant[] = treeFoliagePositions.map((p, i) => ({
+                        idx: i,
+                        x: p.x,
+                        z: p.z,
+                        radius: p.s * 3.0, // Competition radius based on tree size
+                        vigor: 0.3 + Math.random() * 0.7,
+                    }));
+
+                    // Ecosystem simulation: plant competition with spatial grid
+                    const gridCellSize = 15; // Slightly larger than max tree radius
+                    const gridW = Math.ceil(terrainSize / gridCellSize) + 1;
+                    const gridH = Math.ceil(terrainSize / gridCellSize) + 1;
+
+                    for (let iter = 0; iter < 4; iter++) {
+                        // Build spatial grid
+                        const grid = new Map<number, number[]>();
+                        for (let i = 0; i < plants.length; i++) {
+                            const gx = Math.floor((plants[i].x + terrainSize / 2) / gridCellSize);
+                            const gy = Math.floor((plants[i].z + terrainSize / 2) / gridCellSize);
+                            const key = gy * gridW + gx;
+                            if (!grid.has(key)) grid.set(key, []);
+                            grid.get(key)!.push(i);
+                        }
+
+                        // Check competition only against nearby cells
+                        for (let i = 0; i < plants.length; i++) {
+                            if (plants[i].vigor <= 0) continue;
+                            const gx = Math.floor((plants[i].x + terrainSize / 2) / gridCellSize);
+                            const gy = Math.floor((plants[i].z + terrainSize / 2) / gridCellSize);
+
+                            // Check 3x3 neighborhood
+                            for (let dy = -1; dy <= 1; dy++) {
+                                for (let dx = -1; dx <= 1; dx++) {
+                                    const key = (gy + dy) * gridW + (gx + dx);
+                                    const cell = grid.get(key);
+                                    if (!cell) continue;
+                                    for (const j of cell) {
+                                        if (j <= i || plants[j].vigor <= 0) continue;
+                                        const distSq = (plants[i].x - plants[j].x) ** 2 +
+                                                       (plants[i].z - plants[j].z) ** 2;
+                                        const minDist = plants[i].radius + plants[j].radius;
+                                        if (distSq < minDist * minDist) {
+                                            // Weaker plant loses vigor
+                                            if (plants[i].vigor < plants[j].vigor) {
+                                                plants[i].vigor -= 0.25;
+                                            } else {
+                                                plants[j].vigor -= 0.25;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Remove dead plants (swap-and-pop)
+                        for (let i = plants.length - 1; i >= 0; i--) {
+                            if (plants[i].vigor <= 0) {
+                                plants[i] = plants[plants.length - 1];
+                                plants.pop();
+                            }
+                        }
+                    }
+
+                    // Build set of surviving tree indices
+                    const survivingIndices = new Set(plants.map(p => p.idx));
+
+                    // Filter tree positions to only survivors, and adjust scale by vigor
+                    const survivingFoliage: typeof treeFoliagePositions = [];
+                    const survivingTrunks: typeof treeTrunkPositions = [];
+                    for (const plant of plants) {
+                        const foliage = treeFoliagePositions[plant.idx];
+                        const trunk = treeTrunkPositions[plant.idx];
+                        if (!foliage || !trunk) continue;
+
+                        // Scale by vigor — healthier trees are bigger
+                        const vigorScale = 0.7 + plant.vigor * 0.5;
+                        survivingFoliage.push({ ...foliage, s: foliage.s * vigorScale });
+                        survivingTrunks.push({ ...trunk, s: trunk.s * vigorScale });
+
+                        // Spawn understory bush near large surviving trees
+                        if (plant.vigor > 0.5 && Math.random() > 0.5) {
+                            const angle = Math.random() * Math.PI * 2;
+                            const dist = plant.radius * 0.6;
+                            const bx = plant.x + Math.cos(angle) * dist;
+                            const bz = plant.z + Math.sin(angle) * dist;
+                            const by = getTerrainHeight(terrainMesh!, bx, bz);
+                            bushPositions.push({ x: bx, y: by + 0.3, z: bz, s: 0.25 + Math.random() * 0.3 });
+                        }
+                    }
+
+                    // Replace arrays with filtered results
+                    treeFoliagePositions.length = 0;
+                    treeFoliagePositions.push(...survivingFoliage);
+                    treeTrunkPositions.length = 0;
+                    treeTrunkPositions.push(...survivingTrunks);
+                }
+
                 // Create InstancedMesh batches
                 if (treeFoliagePositions.length > 0) {
-                    const geom = new THREE.ConeGeometry(0.9, 3.0, 6);
+                    // Multi-layered conifer crown: 3 stacked cones merged for pine silhouette
+                    const bottomTier = new THREE.ConeGeometry(1.1, 1.5, 7);
+                    bottomTier.translate(0, -0.3, 0);
+                    const middleTier = new THREE.ConeGeometry(0.85, 1.3, 7);
+                    middleTier.translate(0, 0.4, 0);
+                    const topTier = new THREE.ConeGeometry(0.6, 1.2, 7);
+                    topTier.translate(0, 1.0, 0);
+                    const geom = mergeGeometries([bottomTier, middleTier, topTier])!;
+                    // Organic vertex displacement for natural variation
+                    const positions = geom.attributes.position;
+                    for (let i = 0; i < positions.count; i++) {
+                        const x = positions.getX(i);
+                        const y = positions.getY(i);
+                        const z = positions.getZ(i);
+                        const radial = Math.sqrt(x * x + z * z);
+                        if (radial > 0.05) {
+                            const noise = Math.sin(x * 13.7 + z * 17.3) * Math.cos(y * 11.1) * 0.15;
+                            positions.setX(i, x + x * noise);
+                            positions.setZ(i, z + z * noise);
+                        }
+                    }
+                    positions.needsUpdate = true;
+                    geom.computeVertexNormals();
                     const mat = new THREE.MeshStandardMaterial({ color: 0x1d4c0e, roughness: 0.9, metalness: 0.0 });
                     const inst = new THREE.InstancedMesh(geom, mat, treeFoliagePositions.length);
                     inst.castShadow = true;
@@ -438,8 +730,26 @@ export function useSurfaceView(
                     propsGroup.add(inst);
                 }
 
+                if (palmPositions.length > 0) {
+                    // Palm tree foliage — wider, flatter cone
+                    const geom = new THREE.ConeGeometry(1.2, 1.5, 6);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x2d7c1e, roughness: 0.9, metalness: 0.0 });
+                    const inst = new THREE.InstancedMesh(geom, mat, palmPositions.length);
+                    inst.castShadow = true;
+                    inst.receiveShadow = true;
+                    for (let i = 0; i < palmPositions.length; i++) {
+                        const p = palmPositions[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.y = Math.random() * Math.PI * 2;
+                        dummy.updateMatrix();
+                        inst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(inst);
+                }
+
                 if (treeTrunkPositions.length > 0) {
-                    const geom = new THREE.CylinderGeometry(0.15, 0.2, 1.8, 6);
+                    const geom = new THREE.CylinderGeometry(0.12, 0.22, 1.8, 8);
                     const mat = new THREE.MeshStandardMaterial({ color: 0x5c3a1e, roughness: 0.95, metalness: 0.0 });
                     const inst = new THREE.InstancedMesh(geom, mat, treeTrunkPositions.length);
                     inst.castShadow = true;
@@ -455,7 +765,20 @@ export function useSurfaceView(
                 }
 
                 if (bushPositions.length > 0) {
-                    const geom = new THREE.SphereGeometry(0.5, 6, 6);
+                    const geom = new THREE.SphereGeometry(0.5, 8, 6);
+                    // Clumpy foliage displacement
+                    const positions = geom.attributes.position;
+                    for (let i = 0; i < positions.count; i++) {
+                        const x = positions.getX(i);
+                        const y = positions.getY(i);
+                        const z = positions.getZ(i);
+                        const noise = Math.sin(x * 8.7 + z * 12.3) * Math.cos(y * 9.1 + x * 7.7) * 0.25;
+                        positions.setX(i, x * (1 + noise));
+                        positions.setY(i, y * (1 + noise * 0.5) + 0.1);
+                        positions.setZ(i, z * (1 + noise));
+                    }
+                    positions.needsUpdate = true;
+                    geom.computeVertexNormals();
                     const mat = new THREE.MeshStandardMaterial({ color: 0x4a8c2d, roughness: 0.95, metalness: 0.0 });
                     const inst = new THREE.InstancedMesh(geom, mat, bushPositions.length);
                     inst.castShadow = true;
@@ -489,7 +812,22 @@ export function useSurfaceView(
                 }
 
                 if (rockPositions.length > 0) {
-                    const geom = new THREE.IcosahedronGeometry(0.8, 0);
+                    const geom = new THREE.IcosahedronGeometry(0.8, 1);
+                    // Irregular rocky displacement
+                    const positions = geom.attributes.position;
+                    for (let i = 0; i < positions.count; i++) {
+                        const x = positions.getX(i);
+                        const y = positions.getY(i);
+                        const z = positions.getZ(i);
+                        const noise = (Math.sin(x * 7.3 + y * 11.7) * Math.cos(z * 13.1 + x * 5.3) * 0.3 +
+                                       Math.sin(x * 23.1 + z * 19.7) * 0.15);
+                        const scale = 1 + noise;
+                        positions.setX(i, x * scale);
+                        positions.setY(i, y * scale * 0.7);
+                        positions.setZ(i, z * scale);
+                    }
+                    positions.needsUpdate = true;
+                    geom.computeVertexNormals();
                     const mat = new THREE.MeshStandardMaterial({ color: 0x7d6d5c, roughness: 0.95, metalness: 0.05 });
                     const inst = new THREE.InstancedMesh(geom, mat, rockPositions.length);
                     inst.castShadow = true;
@@ -506,7 +844,22 @@ export function useSurfaceView(
                 }
 
                 if (icePositions.length > 0) {
-                    const geom = new THREE.ConeGeometry(0.4, 1.5, 5);
+                    const geom = new THREE.ConeGeometry(0.35, 1.5, 6);
+                    // Crystalline vertex displacement for ice shards
+                    const positions = geom.attributes.position;
+                    for (let i = 0; i < positions.count; i++) {
+                        const x = positions.getX(i);
+                        const y = positions.getY(i);
+                        const z = positions.getZ(i);
+                        const radial = Math.sqrt(x * x + z * z);
+                        if (radial > 0.02) {
+                            const noise = Math.sin(x * 19.3 + z * 23.7) * Math.cos(y * 17.1) * 0.2;
+                            positions.setX(i, x * (1 + noise));
+                            positions.setZ(i, z * (1 + noise));
+                        }
+                    }
+                    positions.needsUpdate = true;
+                    geom.computeVertexNormals();
                     const mat = new THREE.MeshStandardMaterial({
                         color: 0xd4e4e8, roughness: 0.3, metalness: 0.2,
                         emissive: 0x88aacc, emissiveIntensity: 0.1
@@ -525,44 +878,92 @@ export function useSurfaceView(
                     propsGroup.add(inst);
                 }
             } else {
-                // Non-Earth planets: instanced rocks
-                const rockGeom = new THREE.IcosahedronGeometry(1, 0);
-                const rockMat = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, roughness: 0.9, metalness: 0.05 });
-                const rockCount = 50;
-                const rockInst = new THREE.InstancedMesh(rockGeom, rockMat, rockCount);
-                rockInst.castShadow = true;
-                rockInst.receiveShadow = true;
-                for (let i = 0; i < rockCount; i++) {
-                    const scale = 0.6 + Math.random() * 1.4;
-                    const x = (Math.random() * 2 - 1) * half;
-                    const z = (Math.random() * 2 - 1) * half;
-                    const y = getTerrainHeight(terrainMesh, x, z);
-                    dummy.position.set(x, y, z);
-                    dummy.scale.setScalar(scale);
-                    dummy.rotation.set(Math.random(), Math.random(), Math.random());
-                    dummy.updateMatrix();
-                    rockInst.setMatrixAt(i, dummy.matrix);
-                }
-                propsGroup.add(rockInst);
-
-                // Ice formations on cold planets (instanced)
+                // Non-Earth planets: Poisson-sampled rocks with slope awareness
+                const rockSamples = poissonDiskSample(35, 20);
+                const rockPosArr: { x: number; y: number; z: number; s: number }[] = [];
+                const iceArr: { x: number; y: number; z: number; s: number }[] = [];
                 const coldPlanets = ['pluto', 'eris', 'makemake', 'haumea', 'moon'];
-                if (coldPlanets.includes(planetName)) {
-                    const iceGeom = new THREE.ConeGeometry(0.6, 2.4, 5);
+                const isCold = coldPlanets.includes(planetName);
+
+                for (const pt of rockSamples) {
+                    const x = pt.x;
+                    const z = pt.z;
+                    const y = getTerrainHeight(terrainMesh, x, z);
+                    const slope = getSlopeAt(x, z);
+
+                    // Rocks more likely on steep terrain (scree accumulation)
+                    const rockProb = 0.3 + slope * 0.5;
+                    if (Math.random() < rockProb) {
+                        const scale = 0.6 + Math.random() * 1.4;
+                        rockPosArr.push({ x, y, z, s: scale });
+                    }
+
+                    // Ice on cold planets: prefers gentle slopes, higher elevations
+                    if (isCold && slope < 0.6 && Math.random() > 0.5) {
+                        iceArr.push({ x, y: y + 1.2, z, s: 0.7 + Math.random() * 0.6 });
+                    }
+                }
+
+                if (rockPosArr.length > 0) {
+                    const rockGeom = new THREE.IcosahedronGeometry(1, 1);
+                    // Irregular rocky displacement for non-Earth rocks
+                    const rockPositions = rockGeom.attributes.position;
+                    for (let i = 0; i < rockPositions.count; i++) {
+                        const x = rockPositions.getX(i);
+                        const y = rockPositions.getY(i);
+                        const z = rockPositions.getZ(i);
+                        const noise = (Math.sin(x * 7.3 + y * 11.7) * Math.cos(z * 13.1 + x * 5.3) * 0.3 +
+                                       Math.sin(x * 23.1 + z * 19.7) * 0.15);
+                        const scale = 1 + noise;
+                        rockPositions.setX(i, x * scale);
+                        rockPositions.setY(i, y * scale * 0.7);
+                        rockPositions.setZ(i, z * scale);
+                    }
+                    rockPositions.needsUpdate = true;
+                    rockGeom.computeVertexNormals();
+                    const rockMat = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, roughness: 0.9, metalness: 0.05 });
+                    const rockInst = new THREE.InstancedMesh(rockGeom, rockMat, rockPosArr.length);
+                    rockInst.castShadow = true;
+                    rockInst.receiveShadow = true;
+                    for (let i = 0; i < rockPosArr.length; i++) {
+                        const p = rockPosArr[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.set(Math.random(), Math.random(), Math.random());
+                        dummy.updateMatrix();
+                        rockInst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(rockInst);
+                }
+
+                if (iceArr.length > 0) {
+                    const iceGeom = new THREE.ConeGeometry(0.55, 2.4, 6);
+                    // Crystalline vertex displacement for ice formations
+                    const icePositions = iceGeom.attributes.position;
+                    for (let i = 0; i < icePositions.count; i++) {
+                        const x = icePositions.getX(i);
+                        const y = icePositions.getY(i);
+                        const z = icePositions.getZ(i);
+                        const radial = Math.sqrt(x * x + z * z);
+                        if (radial > 0.02) {
+                            const noise = Math.sin(x * 19.3 + z * 23.7) * Math.cos(y * 17.1) * 0.2;
+                            icePositions.setX(i, x * (1 + noise));
+                            icePositions.setZ(i, z * (1 + noise));
+                        }
+                    }
+                    icePositions.needsUpdate = true;
+                    iceGeom.computeVertexNormals();
                     const iceMat = new THREE.MeshStandardMaterial({
                         color: 0xa4dfff, roughness: 0.4, metalness: 0.1,
                         emissive: 0x66aaff, emissiveIntensity: 0.1
                     });
-                    const iceCount = 35;
-                    const iceInst = new THREE.InstancedMesh(iceGeom, iceMat, iceCount);
+                    const iceInst = new THREE.InstancedMesh(iceGeom, iceMat, iceArr.length);
                     iceInst.castShadow = true;
                     iceInst.receiveShadow = true;
-                    for (let i = 0; i < iceCount; i++) {
-                        const x = (Math.random() * 2 - 1) * half;
-                        const z = (Math.random() * 2 - 1) * half;
-                        const y = getTerrainHeight(terrainMesh, x, z);
-                        dummy.position.set(x, y + 1.2, z);
-                        dummy.scale.setScalar(0.7 + Math.random() * 0.6);
+                    for (let i = 0; i < iceArr.length; i++) {
+                        const p = iceArr[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
                         dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
                         dummy.updateMatrix();
                         iceInst.setMatrixAt(i, dummy.matrix);
@@ -694,7 +1095,15 @@ export function useSurfaceView(
         }
 
         if (renderer.value && scene.value && camera.value) {
-            renderer.value.render(scene.value, camera.value);
+            if (composer) {
+                // Disable autoReset so PerformanceHUD sees total stats across all passes
+                renderer.value.info.autoReset = false;
+                renderer.value.info.reset();
+                composer.render();
+            } else {
+                renderer.value.info.autoReset = true;
+                renderer.value.render(scene.value, camera.value);
+            }
         }
     }
 
@@ -707,29 +1116,28 @@ export function useSurfaceView(
         if (useSphericalTerrain.value) {
             // SPHERICAL TERRAIN MOVEMENT
             // Get the "up" direction (away from planet center)
-            const up = camera.value.position.clone().normalize();
+            sphereUp.copy(camera.value.position).normalize();
 
             // Get camera forward direction projected onto the tangent plane
-            const cameraDir = new THREE.Vector3();
-            camera.value.getWorldDirection(cameraDir);
+            camera.value.getWorldDirection(sphereCameraDir);
 
             // Project forward onto tangent plane (remove the "up" component)
-            const forward = cameraDir.clone().sub(up.clone().multiplyScalar(cameraDir.dot(up))).normalize();
+            const dotVal = sphereCameraDir.dot(sphereUp);
+            sphereForward.copy(sphereCameraDir).addScaledVector(sphereUp, -dotVal).normalize();
 
             // Right is perpendicular to up and forward
-            const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+            sphereRight.crossVectors(sphereForward, sphereUp).normalize();
 
             // Calculate movement on the tangent plane
-            const moveDirection = new THREE.Vector3();
-            if (moveState.forward) moveDirection.add(forward);
-            if (moveState.backward) moveDirection.sub(forward);
-            if (moveState.left) moveDirection.sub(right);
-            if (moveState.right) moveDirection.add(right);
+            sphereMoveDir.set(0, 0, 0);
+            if (moveState.forward) sphereMoveDir.add(sphereForward);
+            if (moveState.backward) sphereMoveDir.sub(sphereForward);
+            if (moveState.left) sphereMoveDir.sub(sphereRight);
+            if (moveState.right) sphereMoveDir.add(sphereRight);
 
-            if (moveDirection.length() > 0) {
-                moveDirection.normalize();
-                const movement = moveDirection.multiplyScalar(moveSpeed * sprintMultiplier * delta);
-                camera.value.position.add(movement);
+            if (sphereMoveDir.length() > 0) {
+                sphereMoveDir.normalize().multiplyScalar(moveSpeed * sprintMultiplier * delta);
+                camera.value.position.add(sphereMoveDir);
 
                 // Re-normalize to stay on sphere surface
                 const groundHeight = planetRadius + 2;
@@ -737,17 +1145,17 @@ export function useSurfaceView(
             }
 
             // Keep camera "up" aligned with surface normal
-            const newUp = camera.value.position.clone().normalize();
-            const currentUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.value.quaternion);
+            sphereNewUp.copy(camera.value.position).normalize();
+            sphereWorldUp.set(0, 1, 0).applyQuaternion(camera.value.quaternion);
 
             // Smoothly rotate camera to align with new up
-            if (currentUp.dot(newUp) < 0.9999) {
-                const rotationAxis = new THREE.Vector3().crossVectors(currentUp, newUp).normalize();
-                const angle = Math.acos(Math.min(1, currentUp.dot(newUp)));
+            if (sphereWorldUp.dot(sphereNewUp) < 0.9999) {
+                sphereAxis.crossVectors(sphereWorldUp, sphereNewUp).normalize();
+                const angle = Math.acos(Math.min(1, sphereWorldUp.dot(sphereNewUp)));
                 const smoothAngle = angle * 0.1; // Smooth rotation
 
-                const quaternion = new THREE.Quaternion().setFromAxisAngle(rotationAxis, smoothAngle);
-                camera.value.quaternion.premultiply(quaternion);
+                sphereQuat.setFromAxisAngle(sphereAxis, smoothAngle);
+                camera.value.quaternion.premultiply(sphereQuat);
             }
 
             // Always grounded on sphere (no jumping for now on spherical)
@@ -762,18 +1170,18 @@ export function useSurfaceView(
             tempVector3.y = 0; // Remove vertical component for ground movement
             tempVector3.normalize();
 
-            // Store forward direction before reusing tempVector3
-            const forwardDir = tempVector3.clone();
+            // Store forward direction in pre-allocated vector before reusing tempVector3
+            flatForwardDir.copy(tempVector3);
 
             // Calculate right vector (use tempVector3b)
-            tempVector3b.crossVectors(forwardDir, upVector).normalize();
+            tempVector3b.crossVectors(flatForwardDir, upVector).normalize();
 
             // Calculate movement direction (reuse tempVector3)
             const moveDirection = tempVector3; // Reuse tempVector3
             moveDirection.set(0, 0, 0); // Reset
 
-            if (moveState.forward) moveDirection.add(forwardDir);
-            if (moveState.backward) moveDirection.sub(forwardDir);
+            if (moveState.forward) moveDirection.add(flatForwardDir);
+            if (moveState.backward) moveDirection.sub(flatForwardDir);
             if (moveState.left) moveDirection.sub(tempVector3b); // Left = subtract right vector
             if (moveState.right) moveDirection.add(tempVector3b); // Right = add right vector
 
@@ -824,13 +1232,6 @@ export function useSurfaceView(
             // Apply rotation with YXZ order (yaw first, then pitch, then roll)
             // This prevents gimbal lock - yaw always rotates around world Y axis
             camera.value.rotation.set(cameraPitch, cameraYaw, 0, 'YXZ');
-
-            // Auto-correct any residual roll with damping (should rarely be needed)
-            const rollDamping = 0.9;
-            camera.value.rotation.z *= rollDamping;
-            if (Math.abs(camera.value.rotation.z) < 0.001) {
-                camera.value.rotation.z = 0;
-            }
 
             // JUMPING LOGIC FOR FLAT TERRAIN
             // Jump - must be checked BEFORE applying gravity
@@ -938,9 +1339,14 @@ export function useSurfaceView(
     function handleResize() {
         if (!containerRef.value || !camera.value || !renderer.value) return;
 
-        camera.value.aspect = containerRef.value.clientWidth / containerRef.value.clientHeight;
+        const w = containerRef.value.clientWidth;
+        const h = containerRef.value.clientHeight;
+        camera.value.aspect = w / h;
         camera.value.updateProjectionMatrix();
-        renderer.value.setSize(containerRef.value.clientWidth, containerRef.value.clientHeight);
+        renderer.value.setSize(w, h);
+        if (composer) {
+            composer.setSize(w, h);
+        }
     }
 
     async function enter(planetName: string) {
@@ -956,6 +1362,7 @@ export function useSurfaceView(
         }
 
         await loadPlanetSurface(planetName);
+        lastTime = performance.now() / 1000; // Initialize so first frame gets a proper delta
         animate();
 
         window.addEventListener('keydown', handleKeyDown);
@@ -1035,6 +1442,10 @@ export function useSurfaceView(
             propsGroup = null;
         }
 
+        if (composer) {
+            composer.dispose();
+            composer = null;
+        }
         renderer.value?.dispose();
         controls.value?.dispose();
 
