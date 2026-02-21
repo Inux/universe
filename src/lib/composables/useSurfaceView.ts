@@ -13,6 +13,7 @@ import {
     updateWater,
     createSkyDome,
     createStarfield,
+    updateStarfield,
     updateSkyDome,
     getTerrainHeight,
     createTerrainChunkGrid,
@@ -50,6 +51,12 @@ export function useSurfaceView(
     let rimLight: THREE.DirectionalLight | null = null;
     let dustSystem: THREE.Points | null = null;
     let propsGroup: THREE.Group | null = null;
+
+    // Cached scene references (avoid per-frame searches)
+    let hemiLight: THREE.HemisphereLight | null = null;
+
+    // Pre-allocated vector for sun direction (reused every frame)
+    const sunDirection = new THREE.Vector3();
 
     // Day/night cycle
     let dayTime = 0.25; // Start at sunrise (0-1, 0.5 = noon)
@@ -193,7 +200,7 @@ export function useSurfaceView(
         scene.value.add(rimLight);
 
         // Hemisphere light for sky/ground color bleeding
-        const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.4);
+        hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.4);
         scene.value.add(hemiLight);
 
         return true;
@@ -305,10 +312,16 @@ export function useSurfaceView(
             }
         }
 
-        // Fog based on atmosphere - disabled to prevent visual artifacts
-        // TODO: Implement better fog system without banding artifacts
+        // Exponential fog for planets with atmosphere (avoids banding unlike linear fog)
         if (scene.value) {
-            scene.value.fog = null;
+            if (config.atmosphereColor) {
+                // Use FogExp2 - exponential squared fog for smooth distance fade
+                const fogColor = config.atmosphereColor.clone().multiplyScalar(0.4);
+                scene.value.fog = new THREE.FogExp2(fogColor.getHex(), 0.0018);
+            } else {
+                // No atmosphere = no fog, just darkness
+                scene.value.fog = null;
+            }
         }
 
         // Mars dust (simple particle field)
@@ -335,176 +348,226 @@ export function useSurfaceView(
             scene.value.add(dustSystem);
         }
 
-        // Props: biome-specific vegetation and details
+        // Props: biome-specific vegetation and details (using InstancedMesh for performance)
         if (scene.value && terrainMesh) {
             propsGroup = new THREE.Group();
             scene.value.add(propsGroup);
             const size = (terrainMesh.userData.terrainSize as number) ?? 500;
             const half = size / 2;
 
+            const dummy = new THREE.Object3D(); // Reusable transform helper
+
             if (planetName === 'earth' && config.hasBiomes) {
-                // Create a terrain generator to query biomes
                 const generator = new TerrainGenerator(config, planetName.length * 1000);
 
-                // Biome-specific props with higher density
-                const propCount = 200;
+                // Sample biomes and collect positions per type
+                const treeFoliagePositions: { x: number; y: number; z: number; s: number }[] = [];
+                const treeTrunkPositions: { x: number; y: number; z: number; s: number }[] = [];
+                const bushPositions: { x: number; y: number; z: number; s: number }[] = [];
+                const cactusPositions: { x: number; y: number; z: number; s: number }[] = [];
+                const rockPositions: { x: number; y: number; z: number; s: number }[] = [];
+                const icePositions: { x: number; y: number; z: number; s: number }[] = [];
+
+                const propCount = 300;
                 for (let i = 0; i < propCount; i++) {
                     const x = (Math.random() * 2 - 1) * half;
                     const z = (Math.random() * 2 - 1) * half;
                     const y = getTerrainHeight(terrainMesh, x, z);
 
-                    // Get biome at this position
                     const nx = (x / size + 0.5) * 3;
                     const nz = (z / size + 0.5) * 3;
                     const height = generator.getHeight(nx, nz);
                     const normalizedHeight = height / config.amplitude;
                     const biome = generator.getBiome(nx, nz, normalizedHeight);
 
-                    let prop: THREE.Mesh | null = null;
-
                     switch (biome) {
                         case BiomeType.FOREST:
-                            // Dense trees in forest
-                            if (Math.random() > 0.3) {
-                                const treeGeom = new THREE.ConeGeometry(0.8 + Math.random() * 0.4, 2.5 + Math.random() * 1.5, 6);
-                                const treeMat = new THREE.MeshStandardMaterial({
-                                    color: new THREE.Color(0x1d4c0e).lerp(new THREE.Color(0x2d5c1e), Math.random()),
-                                    roughness: 0.9,
-                                    metalness: 0.0
-                                });
-                                prop = new THREE.Mesh(treeGeom, treeMat);
-                                prop.position.set(x, y + 1.5, z);
+                            if (Math.random() > 0.25) {
+                                const s = 0.7 + Math.random() * 0.6;
+                                treeFoliagePositions.push({ x, y: y + 2.0 * s, z, s });
+                                treeTrunkPositions.push({ x, y: y + 0.8 * s, z, s });
                             }
                             break;
-
                         case BiomeType.PLAINS:
-                            // Sparse grass tufts and small bushes
-                            if (Math.random() > 0.7) {
-                                const bushGeom = new THREE.SphereGeometry(0.5 + Math.random() * 0.3, 6, 6);
-                                const bushMat = new THREE.MeshStandardMaterial({
-                                    color: 0x4a8c2d,
-                                    roughness: 0.95,
-                                    metalness: 0.0
-                                });
-                                prop = new THREE.Mesh(bushGeom, bushMat);
-                                prop.position.set(x, y + 0.3, z);
+                            if (Math.random() > 0.65) {
+                                bushPositions.push({ x, y: y + 0.3, z, s: 0.4 + Math.random() * 0.4 });
                             }
                             break;
-
                         case BiomeType.DESERT:
-                            // Cacti and rocks
-                            if (Math.random() > 0.6) {
+                            if (Math.random() > 0.55) {
                                 if (Math.random() > 0.5) {
-                                    // Cactus
-                                    const cactusGeom = new THREE.CylinderGeometry(0.3, 0.3, 2, 8);
-                                    const cactusMat = new THREE.MeshStandardMaterial({
-                                        color: 0x3a6b35,
-                                        roughness: 0.9,
-                                        metalness: 0.0
-                                    });
-                                    prop = new THREE.Mesh(cactusGeom, cactusMat);
-                                    prop.position.set(x, y + 1, z);
+                                    cactusPositions.push({ x, y: y + 1, z, s: 0.8 + Math.random() * 0.4 });
                                 } else {
-                                    // Desert rock
-                                    const rockGeom = new THREE.DodecahedronGeometry(0.5 + Math.random() * 0.5, 0);
-                                    const rockMat = new THREE.MeshStandardMaterial({
-                                        color: 0xb8956a,
-                                        roughness: 0.95,
-                                        metalness: 0.05
-                                    });
-                                    prop = new THREE.Mesh(rockGeom, rockMat);
-                                    prop.position.set(x, y, z);
+                                    rockPositions.push({ x, y, z, s: 0.5 + Math.random() * 0.5 });
                                 }
                             }
                             break;
-
                         case BiomeType.TUNDRA:
-                            // Sparse ice formations and snow patches
-                            if (Math.random() > 0.7) {
-                                const iceGeom = new THREE.ConeGeometry(0.4, 1.5, 5);
-                                const iceMat = new THREE.MeshStandardMaterial({
-                                    color: 0xd4e4e8,
-                                    roughness: 0.3,
-                                    metalness: 0.2,
-                                    emissive: 0x88aacc,
-                                    emissiveIntensity: 0.1
-                                });
-                                prop = new THREE.Mesh(iceGeom, iceMat);
-                                prop.position.set(x, y + 0.75, z);
+                            if (Math.random() > 0.65) {
+                                icePositions.push({ x, y: y + 0.75, z, s: 0.6 + Math.random() * 0.5 });
                             }
                             break;
-
                         case BiomeType.MOUNTAIN:
-                            // Rocky outcrops
-                            if (Math.random() > 0.5) {
-                                const rockGeom = new THREE.IcosahedronGeometry(0.8 + Math.random() * 1.2, 0);
-                                const rockMat = new THREE.MeshStandardMaterial({
-                                    color: new THREE.Color(0x7d6d5c).lerp(new THREE.Color(0xe0e0e0), Math.random() * 0.5),
-                                    roughness: 0.95,
-                                    metalness: 0.05
-                                });
-                                prop = new THREE.Mesh(rockGeom, rockMat);
-                                prop.position.set(x, y, z);
+                            if (Math.random() > 0.45) {
+                                rockPositions.push({ x, y, z, s: 0.8 + Math.random() * 1.2 });
                             }
                             break;
-
                         case BiomeType.BEACH:
-                            // Palm trees occasionally
                             if (Math.random() > 0.85) {
-                                const palmTrunkGeom = new THREE.CylinderGeometry(0.2, 0.25, 3, 8);
-                                const palmMat = new THREE.MeshStandardMaterial({ color: 0x8b6914, roughness: 0.9 });
-                                prop = new THREE.Mesh(palmTrunkGeom, palmMat);
-                                prop.position.set(x, y + 1.5, z);
+                                treeTrunkPositions.push({ x, y: y + 1.5, z, s: 0.8 + Math.random() * 0.3 });
                             }
                             break;
-                    }
-
-                    if (prop) {
-                        prop.castShadow = true;
-                        prop.receiveShadow = true;
-                        propsGroup.add(prop);
                     }
                 }
+
+                // Create InstancedMesh batches
+                if (treeFoliagePositions.length > 0) {
+                    const geom = new THREE.ConeGeometry(0.9, 3.0, 6);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x1d4c0e, roughness: 0.9, metalness: 0.0 });
+                    const inst = new THREE.InstancedMesh(geom, mat, treeFoliagePositions.length);
+                    inst.castShadow = true;
+                    inst.receiveShadow = true;
+                    for (let i = 0; i < treeFoliagePositions.length; i++) {
+                        const p = treeFoliagePositions[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.y = Math.random() * Math.PI * 2;
+                        dummy.updateMatrix();
+                        inst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(inst);
+                }
+
+                if (treeTrunkPositions.length > 0) {
+                    const geom = new THREE.CylinderGeometry(0.15, 0.2, 1.8, 6);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x5c3a1e, roughness: 0.95, metalness: 0.0 });
+                    const inst = new THREE.InstancedMesh(geom, mat, treeTrunkPositions.length);
+                    inst.castShadow = true;
+                    for (let i = 0; i < treeTrunkPositions.length; i++) {
+                        const p = treeTrunkPositions[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.set(0, 0, 0);
+                        dummy.updateMatrix();
+                        inst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(inst);
+                }
+
+                if (bushPositions.length > 0) {
+                    const geom = new THREE.SphereGeometry(0.5, 6, 6);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x4a8c2d, roughness: 0.95, metalness: 0.0 });
+                    const inst = new THREE.InstancedMesh(geom, mat, bushPositions.length);
+                    inst.castShadow = true;
+                    inst.receiveShadow = true;
+                    for (let i = 0; i < bushPositions.length; i++) {
+                        const p = bushPositions[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.set(0, 0, 0);
+                        dummy.updateMatrix();
+                        inst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(inst);
+                }
+
+                if (cactusPositions.length > 0) {
+                    const geom = new THREE.CylinderGeometry(0.3, 0.3, 2, 8);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x3a6b35, roughness: 0.9, metalness: 0.0 });
+                    const inst = new THREE.InstancedMesh(geom, mat, cactusPositions.length);
+                    inst.castShadow = true;
+                    inst.receiveShadow = true;
+                    for (let i = 0; i < cactusPositions.length; i++) {
+                        const p = cactusPositions[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.set(0, 0, 0);
+                        dummy.updateMatrix();
+                        inst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(inst);
+                }
+
+                if (rockPositions.length > 0) {
+                    const geom = new THREE.IcosahedronGeometry(0.8, 0);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x7d6d5c, roughness: 0.95, metalness: 0.05 });
+                    const inst = new THREE.InstancedMesh(geom, mat, rockPositions.length);
+                    inst.castShadow = true;
+                    inst.receiveShadow = true;
+                    for (let i = 0; i < rockPositions.length; i++) {
+                        const p = rockPositions[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.set(Math.random(), Math.random(), Math.random());
+                        dummy.updateMatrix();
+                        inst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(inst);
+                }
+
+                if (icePositions.length > 0) {
+                    const geom = new THREE.ConeGeometry(0.4, 1.5, 5);
+                    const mat = new THREE.MeshStandardMaterial({
+                        color: 0xd4e4e8, roughness: 0.3, metalness: 0.2,
+                        emissive: 0x88aacc, emissiveIntensity: 0.1
+                    });
+                    const inst = new THREE.InstancedMesh(geom, mat, icePositions.length);
+                    inst.castShadow = true;
+                    inst.receiveShadow = true;
+                    for (let i = 0; i < icePositions.length; i++) {
+                        const p = icePositions[i];
+                        dummy.position.set(p.x, p.y, p.z);
+                        dummy.scale.setScalar(p.s);
+                        dummy.rotation.set(0, 0, 0);
+                        dummy.updateMatrix();
+                        inst.setMatrixAt(i, dummy.matrix);
+                    }
+                    propsGroup.add(inst);
+                }
             } else {
-                // Non-Earth planets: simple props
+                // Non-Earth planets: instanced rocks
                 const rockGeom = new THREE.IcosahedronGeometry(1, 0);
                 const rockMat = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, roughness: 0.9, metalness: 0.05 });
-                const rockCount = 40;
+                const rockCount = 50;
+                const rockInst = new THREE.InstancedMesh(rockGeom, rockMat, rockCount);
+                rockInst.castShadow = true;
+                rockInst.receiveShadow = true;
                 for (let i = 0; i < rockCount; i++) {
-                    const m = new THREE.Mesh(rockGeom, rockMat);
                     const scale = 0.6 + Math.random() * 1.4;
-                    m.scale.setScalar(scale);
                     const x = (Math.random() * 2 - 1) * half;
                     const z = (Math.random() * 2 - 1) * half;
                     const y = getTerrainHeight(terrainMesh, x, z);
-                    m.position.set(x, y, z);
-                    m.castShadow = true;
-                    m.receiveShadow = true;
-                    propsGroup.add(m);
+                    dummy.position.set(x, y, z);
+                    dummy.scale.setScalar(scale);
+                    dummy.rotation.set(Math.random(), Math.random(), Math.random());
+                    dummy.updateMatrix();
+                    rockInst.setMatrixAt(i, dummy.matrix);
                 }
+                propsGroup.add(rockInst);
 
-                // Ice formations on cold planets
+                // Ice formations on cold planets (instanced)
                 const coldPlanets = ['pluto', 'eris', 'makemake', 'haumea', 'moon'];
                 if (coldPlanets.includes(planetName)) {
                     const iceGeom = new THREE.ConeGeometry(0.6, 2.4, 5);
                     const iceMat = new THREE.MeshStandardMaterial({
-                        color: 0xa4dfff,
-                        roughness: 0.4,
-                        metalness: 0.1,
-                        emissive: 0x66aaff,
-                        emissiveIntensity: 0.1
+                        color: 0xa4dfff, roughness: 0.4, metalness: 0.1,
+                        emissive: 0x66aaff, emissiveIntensity: 0.1
                     });
-                    const iceCount = 30;
+                    const iceCount = 35;
+                    const iceInst = new THREE.InstancedMesh(iceGeom, iceMat, iceCount);
+                    iceInst.castShadow = true;
+                    iceInst.receiveShadow = true;
                     for (let i = 0; i < iceCount; i++) {
-                        const m = new THREE.Mesh(iceGeom, iceMat);
                         const x = (Math.random() * 2 - 1) * half;
                         const z = (Math.random() * 2 - 1) * half;
                         const y = getTerrainHeight(terrainMesh, x, z);
-                        m.position.set(x, y + 1.2, z);
-                        m.castShadow = true;
-                        m.receiveShadow = true;
-                        propsGroup.add(m);
+                        dummy.position.set(x, y + 1.2, z);
+                        dummy.scale.setScalar(0.7 + Math.random() * 0.6);
+                        dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+                        dummy.updateMatrix();
+                        iceInst.setMatrixAt(i, dummy.matrix);
                     }
+                    propsGroup.add(iceInst);
                 }
             }
         }
@@ -521,11 +584,7 @@ export function useSurfaceView(
         starfield.renderOrder = -1; // Render after sky dome but before terrain
         scene.value.add(starfield);
 
-        // Update hemisphere light colors based on planet
-        const hemiLight = scene.value.children.find(
-            child => child instanceof THREE.HemisphereLight
-        ) as THREE.HemisphereLight | undefined;
-
+        // Update hemisphere light colors based on planet (using cached ref)
         if (hemiLight && config.atmosphereColor) {
             hemiLight.color.copy(config.atmosphereColor);
             hemiLight.groundColor.copy(config.baseColor);
@@ -549,15 +608,15 @@ export function useSurfaceView(
         dayTime += delta / dayDuration;
         if (dayTime > 1) dayTime -= 1;
 
-        // Update sun position (circular path)
+        // Update sun position (circular path) - reuse pre-allocated vector
         const sunAngle = dayTime * Math.PI * 2 - Math.PI / 2; // Start at horizon
         const sunHeight = Math.sin(sunAngle);
         const sunHorizontal = Math.cos(sunAngle);
 
-        const sunDirection = new THREE.Vector3(sunHorizontal, sunHeight, 0.3).normalize();
+        sunDirection.set(sunHorizontal, sunHeight, 0.3).normalize();
 
-        // Update sun light position
-        sunLight.position.copy(sunDirection.clone().multiplyScalar(200));
+        // Update sun light position (reuse sunDirection, scale in-place then restore)
+        sunLight.position.copy(sunDirection).multiplyScalar(200);
 
         // Update sun intensity based on height
         const intensity = Math.max(0, sunHeight) * 1.5 + 0.1;
@@ -572,6 +631,18 @@ export function useSurfaceView(
             sunLight.color.setHex(0x4466aa); // Moonlight blue
         }
 
+        // Shadow camera follows player for better shadow quality
+        if (camera.value && sunLight.shadow) {
+            sunLight.target.position.copy(camera.value.position);
+            sunLight.target.updateMatrixWorld();
+        }
+
+        // Dynamic tonemap exposure: brighter midday, dimmer at night
+        if (renderer.value) {
+            const exposureBase = 0.3 + Math.max(0, sunHeight) * 0.9;
+            renderer.value.toneMappingExposure = exposureBase;
+        }
+
         // Update sky dome - follow camera position
         updateSkyDome(skyDome, sunDirection, !!config.atmosphereColor);
         if (camera.value) {
@@ -583,21 +654,15 @@ export function useSurfaceView(
             updateWater(waterMesh, dayTime * dayDuration, sunDirection);
         }
 
-        // Update starfield - follow camera position and fade with daylight
+        // Update starfield - follow camera, twinkling, fade with daylight
         if (starfield) {
-            // Stars fade out as sun rises, fade in as sun sets
-            const starOpacity = 1 - THREE.MathUtils.smoothstep(sunHeight, -0.1, 0.2);
-            (starfield.material as THREE.PointsMaterial).opacity = starOpacity;
+            updateStarfield(starfield, dayTime * dayDuration, sunHeight);
             if (camera.value) {
                 starfield.position.copy(camera.value.position);
             }
         }
 
-        // Update hemisphere light
-        const hemiLight = scene.value.children.find(
-            child => child instanceof THREE.HemisphereLight
-        ) as THREE.HemisphereLight | undefined;
-
+        // Update cached hemisphere light
         if (hemiLight) {
             hemiLight.intensity = Math.max(0.1, sunHeight * 0.4 + 0.2);
         }
@@ -622,27 +687,15 @@ export function useSurfaceView(
         // Update physics and movement
         updatePhysics(delta);
 
-        // Cull props based on distance (performance optimization)
-        updatePropVisibility();
+        // Animate dust particles
+        if (dustSystem && camera.value) {
+            dustSystem.position.copy(camera.value.position);
+            dustSystem.position.y = 0;
+        }
 
         if (renderer.value && scene.value && camera.value) {
             renderer.value.render(scene.value, camera.value);
         }
-    }
-
-    /**
-     * Cull props based on distance from player (simple optimization)
-     */
-    function updatePropVisibility() {
-        if (!propsGroup || !camera.value) return;
-
-        const playerPos = camera.value.position;
-        const cullDistance = 150; // Hide props beyond this distance
-
-        propsGroup.children.forEach((prop) => {
-            const distance = prop.position.distanceTo(playerPos);
-            prop.visible = distance < cullDistance;
-        });
     }
 
     function updatePhysics(delta: number) {
@@ -969,12 +1022,12 @@ export function useSurfaceView(
             dustSystem = null;
         }
         if (propsGroup && scene.value) {
-            // Dispose all props in the group
-            propsGroup.children.forEach((prop) => {
-                if (prop instanceof THREE.Mesh) {
-                    prop.geometry.dispose();
-                    if (prop.material instanceof THREE.Material) {
-                        prop.material.dispose();
+            // Dispose all props (InstancedMesh or regular Mesh) in the group
+            propsGroup.children.forEach((child) => {
+                if (child instanceof THREE.InstancedMesh || child instanceof THREE.Mesh) {
+                    child.geometry.dispose();
+                    if (child.material instanceof THREE.Material) {
+                        child.material.dispose();
                     }
                 }
             });
@@ -993,6 +1046,7 @@ export function useSurfaceView(
         camera.value = null;
         renderer.value = null;
         controls.value = null;
+        hemiLight = null;
 
         options.onExit?.();
     }

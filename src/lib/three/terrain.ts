@@ -1055,7 +1055,7 @@ export function createSphericalWater(
 export function createWaterPlane(size: number, config: TerrainConfig): THREE.Mesh | null {
     if (!config.waterLevel || !config.waterColor) return null;
 
-    const geometry = new THREE.PlaneGeometry(size * 1.2, size * 1.2, 64, 64);
+    const geometry = new THREE.PlaneGeometry(size * 1.2, size * 1.2, 32, 32);
 
     // Create shader material for animated water with reflections
     const material = new THREE.ShaderMaterial({
@@ -1144,7 +1144,7 @@ export function updateWater(water: THREE.Mesh, time: number, sunDirection?: THRE
  * Creates a sky dome for surface view with day/night cycle support
  */
 export function createSkyDome(config: TerrainConfig, radius: number = 500): THREE.Mesh {
-    const geometry = new THREE.SphereGeometry(radius, 64, 64);
+    const geometry = new THREE.SphereGeometry(radius, 32, 32);
 
     const skyColor = config.atmosphereColor || new THREE.Color(0x000011);
     const horizonColor = skyColor.clone().multiplyScalar(0.5);
@@ -1157,7 +1157,6 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
             nightColor: { value: nightColor },
             sunDirection: { value: new THREE.Vector3(0.5, 0.3, 0.5).normalize() },
             dayNightMix: { value: 1.0 }, // 1 = day, 0 = night
-            offset: { value: 20 },
             exponent: { value: 0.6 },
         },
         // CRITICAL: Sky dome must render as background, never occlude terrain
@@ -1165,14 +1164,12 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
         depthTest: false,  // Always render (background)
         side: THREE.BackSide,
         vertexShader: `
-            varying vec3 vWorldPosition;
-            varying vec3 vNormal;
-            varying vec2 vUv;
+            varying vec3 vDirection;
             void main() {
-                vUv = uv;
-                vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-                vWorldPosition = worldPosition.xyz;
-                vNormal = normalize(normalMatrix * normal);
+                // Pass object-space position as the sky direction.
+                // This is independent of camera rotation, so the horizon
+                // stays fixed when the player looks up or down.
+                vDirection = normalize(position);
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
             }
         `,
@@ -1182,35 +1179,31 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
             uniform vec3 nightColor;
             uniform vec3 sunDirection;
             uniform float dayNightMix;
-            uniform float offset;
             uniform float exponent;
-            varying vec3 vWorldPosition;
-            varying vec3 vNormal;
-            varying vec2 vUv;
+            varying vec3 vDirection;
 
             void main() {
-                // Use normal direction (which is inverted for BackSide rendering)
-                // For BackSide, positive normal Y means looking down toward ground
-                float h = -vNormal.y;
+                // Object-space Y gives a stable sky direction:
+                // +Y = zenith, 0 = horizon, -Y = below horizon
+                float h = vDirection.y;
 
-                // Sky gradient based on inverted normal Y
+                // Sky gradient: horizon color at h=0, top color at h=1
                 float skyFactor = max(h, 0.0);
                 vec3 dayColor = mix(bottomColor, topColor, pow(skyFactor, exponent));
 
-                // Atmospheric scattering - horizon haze effect
-                // More scattering near horizon (h close to 0)
+                // Atmospheric scattering - haze concentrated near horizon
                 float horizonFactor = 1.0 - abs(h);
-                horizonFactor = pow(horizonFactor, 3.0); // Concentrate near horizon
-                vec3 scatterColor = mix(bottomColor, vec3(1.0, 0.95, 0.9), 0.3); // Warm haze
+                horizonFactor = pow(horizonFactor, 3.0);
+                vec3 scatterColor = mix(bottomColor, vec3(1.0, 0.95, 0.9), 0.3);
                 dayColor = mix(dayColor, scatterColor, horizonFactor * 0.4 * dayNightMix);
 
-                // Night sky color (no procedural stars - we have separate starfield mesh)
+                // Night sky
                 vec3 nightSky = nightColor;
 
-                // Mix day and night based on sun position using dayNightMix uniform
+                // Mix day and night
                 vec3 finalColor = mix(nightSky, dayColor, dayNightMix);
 
-                // Below horizon (inverted h < 0) - dark ground color with atmospheric fade
+                // Below horizon - dark ground color with atmospheric fade
                 if (h < 0.0) {
                     vec3 groundColor = bottomColor * 0.2;
                     finalColor = mix(groundColor, finalColor, smoothstep(-0.2, 0.0, h));
@@ -1229,52 +1222,113 @@ export function createSkyDome(config: TerrainConfig, radius: number = 500): THRE
 }
 
 /**
- * Creates a starfield background for night sky
+ * Creates a starfield background for night sky with twinkling effect
  */
 export function createStarfield(radius: number = 900): THREE.Points {
-    const starCount = 1000; // Fewer stars for simplicity
+    const starCount = 1500;
     const positions = new Float32Array(starCount * 3);
     const colors = new Float32Array(starCount * 3);
     const sizes = new Float32Array(starCount);
+    const twinklePhases = new Float32Array(starCount); // Random phase offset per star
+
+    const colorPalette = [
+        [1.0, 1.0, 1.0],       // White
+        [1.0, 0.95, 0.88],     // Warm white
+        [0.88, 0.92, 1.0],     // Cool blue-white
+        [1.0, 0.85, 0.7],      // Orange tint
+        [0.75, 0.88, 1.0],     // Blue tint
+    ];
 
     for (let i = 0; i < starCount; i++) {
-        // Create stars in a dome directly above the camera
-        // Random angle around camera
+        // Distribute on a hemisphere above the camera
         const angle = Math.random() * Math.PI * 2;
-        // Distance from camera (always above)
-        const distance = 50 + Math.random() * 100; // 50-150 units above
-        // Height above camera
-        const height = 10 + Math.random() * 50; // 10-60 units up
+        const elevation = Math.random() * Math.PI * 0.45 + 0.05; // 3° to 84° above horizon
+        const dist = radius * 0.6 + Math.random() * radius * 0.3;
 
-        // Position relative to camera (will be offset when starfield follows camera)
-        positions[i * 3] = Math.cos(angle) * distance;     // X
-        positions[i * 3 + 1] = height;                     // Y (always positive = above)
-        positions[i * 3 + 2] = Math.sin(angle) * distance; // Z
+        positions[i * 3] = Math.cos(angle) * Math.cos(elevation) * dist;
+        positions[i * 3 + 1] = Math.sin(elevation) * dist;
+        positions[i * 3 + 2] = Math.sin(angle) * Math.cos(elevation) * dist;
 
-        // White stars
-        colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
-        sizes[i] = Math.random() * 2 + 1;
+        // Random color from palette
+        const c = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+        colors[i * 3] = c[0];
+        colors[i * 3 + 1] = c[1];
+        colors[i * 3 + 2] = c[2];
+
+        // Varying star sizes
+        const sizeRandom = Math.random();
+        if (sizeRandom < 0.7) {
+            sizes[i] = 1.0 + Math.random() * 1.5;
+        } else if (sizeRandom < 0.93) {
+            sizes[i] = 2.5 + Math.random() * 2.0;
+        } else {
+            sizes[i] = 4.5 + Math.random() * 3.0;
+        }
+
+        twinklePhases[i] = Math.random() * Math.PI * 2;
     }
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute('aPhase', new THREE.BufferAttribute(twinklePhases, 1));
 
-    const material = new THREE.PointsMaterial({
-        size: 3,
-        vertexColors: true,
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            uTime: { value: 0 },
+            uOpacity: { value: 1.0 },
+        },
+        vertexShader: `
+            attribute float aSize;
+            attribute float aPhase;
+            uniform float uTime;
+            varying vec3 vColor;
+            varying float vTwinkle;
+
+            void main() {
+                vColor = color;
+                // Twinkle: slow sine wave with per-star phase offset
+                vTwinkle = 0.7 + 0.3 * sin(uTime * 1.5 + aPhase * 6.2831);
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                gl_PointSize = aSize * vTwinkle;
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `,
+        fragmentShader: `
+            uniform float uOpacity;
+            varying vec3 vColor;
+            varying float vTwinkle;
+
+            void main() {
+                // Soft circular point
+                float dist = length(gl_PointCoord - vec2(0.5));
+                if (dist > 0.5) discard;
+                float alpha = smoothstep(0.5, 0.15, dist) * vTwinkle * uOpacity;
+                gl_FragColor = vec4(vColor, alpha);
+            }
+        `,
         transparent: true,
-        opacity: 1.0,
-        sizeAttenuation: false,
-        depthTest: true,   // allow mountains/terrain to occlude stars
-        depthWrite: false, // but don't write depth so sky/atmosphere unaffected
+        depthTest: true,
+        depthWrite: false,
+        vertexColors: true,
     });
 
     const stars = new THREE.Points(geometry, material);
-    stars.renderOrder = -1; // render behind sky/terrain
+    stars.renderOrder = -1;
     stars.userData.isStarfield = true;
     return stars;
+}
+
+/**
+ * Update starfield twinkling and opacity
+ */
+export function updateStarfield(starfield: THREE.Points, time: number, sunHeight: number): void {
+    const material = starfield.material as THREE.ShaderMaterial;
+    if (!material.uniforms) return;
+    material.uniforms.uTime.value = time;
+    // Fade stars out during daytime
+    material.uniforms.uOpacity.value = 1 - THREE.MathUtils.smoothstep(sunHeight, -0.1, 0.2);
 }
 
 /**
@@ -1300,19 +1354,4 @@ export function updateSkyDome(
     }
 
     material.uniforms.dayNightMix.value = dayNightMix;
-
-    // Also fade stars based on sun height (stars brighter at night)
-    // Expect starfield material to be PointsMaterial
-    if ((skyDome as any).parent) {
-        const parent = (skyDome as any).parent as THREE.Scene;
-        parent.traverse((obj) => {
-            if ((obj as any).userData?.isStarfield) {
-                const starMat = (obj as THREE.Points).material as THREE.PointsMaterial;
-                // Stars fully visible at sunHeight <= -0.1, fade out by sunHeight 0.2
-                const opacity = 1 - THREE.MathUtils.smoothstep(sunHeight, -0.1, 0.2);
-                starMat.opacity = opacity;
-                starMat.needsUpdate = true;
-            }
-        });
-    }
 }

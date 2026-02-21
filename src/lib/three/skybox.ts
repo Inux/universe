@@ -77,12 +77,12 @@ export function createStarfield(scene: THREE.Scene, starCount: number = 10000): 
  * Uses procedural gradient for a space atmosphere feel
  */
 export function createSpaceBackground(scene: THREE.Scene): THREE.Mesh {
-    const geometry = new THREE.SphereGeometry(600000, 32, 32);
+    const geometry = new THREE.SphereGeometry(600000, 24, 24);
 
     // Create a gradient texture for the background
     const canvas = document.createElement('canvas');
-    canvas.width = 2048;
-    canvas.height = 1024;
+    canvas.width = 1024;
+    canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
     // Create a dark space gradient with subtle color variations

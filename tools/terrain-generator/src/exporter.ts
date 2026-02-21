@@ -23,10 +23,12 @@ export class TerrainExporter {
         const planetDir = path.join(this.outputDir, planetName);
         await fs.mkdir(planetDir, { recursive: true });
 
-        // Export heightmap
+        // Export heightmap (pass precomputed min/max to avoid redundant scan)
         await this.exportHeightmap(
             path.join(planetDir, 'heightmap.png'),
-            result.heightmap
+            result.heightmap,
+            result.metadata.minHeight,
+            result.metadata.maxHeight
         );
 
         // Export normal map
@@ -56,15 +58,7 @@ export class TerrainExporter {
      *   G channel = low byte (bits 0-7)
      *   B channel = 0 (unused)
      */
-    private async exportHeightmap(filepath: string, heightmap: HeightmapData): Promise<void> {
-        // Find min/max for normalization
-        let min = Infinity;
-        let max = -Infinity;
-        for (let i = 0; i < heightmap.data.length; i++) {
-            min = Math.min(min, heightmap.data[i]);
-            max = Math.max(max, heightmap.data[i]);
-        }
-
+    private async exportHeightmap(filepath: string, heightmap: HeightmapData, min: number, max: number): Promise<void> {
         const range = max - min;
         console.log(`  Normalizing heightmap: ${min.toFixed(3)} - ${max.toFixed(3)} → 0.0 - 1.0`);
         console.log(`  Encoding as RG (R=high byte, G=low byte) for browser compatibility`);

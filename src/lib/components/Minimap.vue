@@ -4,7 +4,7 @@
     <div class="minimap-player">
       <div
         class="player-icon"
-        :style="{ transform: `rotate(${headingDeg}deg)` }"
+        :style="{ transform: `rotate(${180 - headingDeg}deg)` }"
       ></div>
     </div>
   </div>
@@ -35,78 +35,48 @@ let animationId: number | null = null;
 let lastDrawTime = 0;
 const DRAW_INTERVAL_MS = 100; // 10Hz refresh rate
 
+// Pre-allocate ImageData for batch pixel drawing (avoid 2500 fillRect calls)
+let minimapImageData: ImageData | null = null;
+
 function drawMinimap() {
   if (!canvas.value || !props.terrainMesh) return;
 
   const ctx = canvas.value.getContext('2d');
   if (!ctx) return;
 
-  // Clear canvas
-  ctx.clearRect(0, 0, size, size);
+  // Get or create reusable ImageData
+  if (!minimapImageData || minimapImageData.width !== size) {
+    minimapImageData = ctx.createImageData(size, size);
+  }
+  const imgData = minimapImageData.data;
 
-  // Background
-  ctx.fillStyle = 'rgba(20, 20, 20, 0.8)';
-  ctx.fillRect(0, 0, size, size);
-
-  // Draw terrain heightmap in a small area around player
-  const playerX = props.playerPosition.x;
-  const playerZ = props.playerPosition.z;
-
-  // Get terrain data once outside the loop for performance
+  // Get terrain data
   const terrainData = props.terrainMesh.userData;
   const minimapColors = terrainData.minimapColors as Uint8Array | undefined;
   const minimapRes = (terrainData.minimapResolution as number) || 256;
-
   const terrainSize = terrainData.terrainSize as number;
   const halfSize = terrainSize / 2;
-
-  // Use minimap colors if available, otherwise fall back to height-based coloring
   const useMinimapColors = minimapColors && minimapColors.length > 0;
 
-  const pixelsPerUnit = size / (viewRadius * 2);
+  const playerX = props.playerPosition.x;
+  const playerZ = props.playerPosition.z;
 
-  // Draw grid
-  ctx.strokeStyle = 'rgba(100, 100, 100, 0.3)';
-  ctx.lineWidth = 1;
-  const gridSize = 10; // World units per grid line
-  const gridPixels = gridSize * pixelsPerUnit;
-
-  for (let i = 0; i <= size; i += gridPixels) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, size);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(size, i);
-    ctx.stroke();
-  }
-
-  // Draw terrain using stored biome colors from terrain mesh
-  const resolution = 50; // Pixels per sample
+  // Fill all pixels via ImageData buffer (single putImageData vs 2500 fillRect)
+  const resolution = size; // 1:1 pixel resolution for smooth look
   const step = (viewRadius * 2) / resolution;
-  const pixelSize = size / resolution;
 
-  for (let x = 0; x < resolution; x++) {
-    for (let z = 0; z < resolution; z++) {
-      const worldX = playerX - viewRadius + x * step;
-      const worldZ = playerZ - viewRadius + z * step;
+  for (let px = 0; px < resolution; px++) {
+    for (let pz = 0; pz < resolution; pz++) {
+      const worldX = playerX - viewRadius + px * step;
+      const worldZ = playerZ - viewRadius + pz * step;
 
       // Wrap coordinates
-      let localX = worldX;
-      let localZ = worldZ;
-      while (localX > halfSize) localX -= terrainSize;
-      while (localX < -halfSize) localX += terrainSize;
-      while (localZ > halfSize) localZ -= terrainSize;
-      while (localZ < -halfSize) localZ += terrainSize;
+      let localX = ((worldX % terrainSize) + terrainSize + halfSize) % terrainSize - halfSize;
+      let localZ = ((worldZ % terrainSize) + terrainSize + halfSize) % terrainSize - halfSize;
 
       // Convert to grid indices (match getTerrainHeight in terrain.ts)
-      const geoX = -localX; // Flip X due to 180° Z rotation
-      const geoY = localZ;  // Z becomes Y after -90° X rotation
-
-      const normX = (geoX + halfSize) / terrainSize;
-      const normY = (geoY + halfSize) / terrainSize;
+      const normX = (-localX + halfSize) / terrainSize;
+      const normY = (localZ + halfSize) / terrainSize;
 
       const clampedNormX = Math.max(0, Math.min(1, normX));
       const clampedNormY = Math.max(0, Math.min(1, normY));
@@ -114,10 +84,6 @@ function drawMinimap() {
       let r: number, g: number, b: number;
 
       if (useMinimapColors) {
-        // Sample from stored biome colors
-        // The color array is stored as [z * res + x] in heightmap space
-        // clampedNormX corresponds to -localX (flipped), clampedNormY corresponds to localZ
-        // We need to flip X back to match the color array storage
         const gridX = Math.floor((1 - clampedNormX) * (minimapRes - 1));
         const gridY = Math.floor(clampedNormY * (minimapRes - 1));
         const colorIdx = (gridY * minimapRes + gridX) * 3;
@@ -127,19 +93,39 @@ function drawMinimap() {
           g = minimapColors[colorIdx + 1];
           b = minimapColors[colorIdx + 2];
         } else {
-          r = 50; g = 50; b = 50; // Fallback gray
+          r = 50; g = 50; b = 50;
         }
       } else {
-        // Fallback: simple gray gradient
-        r = 80; g = 80; b = 80;
+        r = 60; g = 60; b = 60;
       }
 
-      const color = `rgb(${r}, ${g}, ${b})`;
-      const pixelX = x * pixelSize;
-      const pixelZ = z * pixelSize;
-      ctx.fillStyle = color;
-      ctx.fillRect(pixelX, pixelZ, pixelSize + 1, pixelSize + 1);
+      const idx = (pz * resolution + px) * 4;
+      imgData[idx] = r;
+      imgData[idx + 1] = g;
+      imgData[idx + 2] = b;
+      imgData[idx + 3] = 200; // Slight transparency
     }
+  }
+
+  // Single putImageData call replaces 2500 fillRect calls
+  ctx.putImageData(minimapImageData, 0, 0);
+
+  // Draw subtle grid overlay
+  ctx.strokeStyle = 'rgba(100, 100, 100, 0.2)';
+  ctx.lineWidth = 0.5;
+  const pixelsPerUnit = size / (viewRadius * 2);
+  const gridSize = 10;
+  const gridPixels = gridSize * pixelsPerUnit;
+
+  for (let i = gridPixels; i < size; i += gridPixels) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(size, i);
+    ctx.stroke();
   }
 
   // Draw border
@@ -150,7 +136,7 @@ function drawMinimap() {
   // Center crosshair (player position)
   const centerX = size / 2;
   const centerY = size / 2;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(centerX - 5, centerY);

@@ -98,7 +98,7 @@ export function createAtmosphere(
     planetRadius: number,
     config: AtmosphereConfig
 ): THREE.Mesh {
-    const geometry = new THREE.SphereGeometry(planetRadius * config.scale, 64, 64);
+    const geometry = new THREE.SphereGeometry(planetRadius * config.scale, 32, 32);
 
     const material = new THREE.ShaderMaterial({
         vertexShader: atmosphereVertexShader,
@@ -145,7 +145,7 @@ export const sunGlowFragmentShader = `
  * Creates a sun glow effect
  */
 export function createSunGlow(sunRadius: number): THREE.Mesh {
-    const geometry = new THREE.SphereGeometry(sunRadius * 1.5, 64, 64);
+    const geometry = new THREE.SphereGeometry(sunRadius * 1.5, 32, 32);
 
     const material = new THREE.ShaderMaterial({
         vertexShader: sunGlowVertexShader,
@@ -167,7 +167,7 @@ export function createSunGlow(sunRadius: number): THREE.Mesh {
  * Creates a corona effect for the sun (outer glow)
  */
 export function createSunCorona(sunRadius: number): THREE.Mesh {
-    const geometry = new THREE.SphereGeometry(sunRadius * 2.5, 32, 32);
+    const geometry = new THREE.SphereGeometry(sunRadius * 2.5, 24, 24);
 
     const material = new THREE.ShaderMaterial({
         vertexShader: atmosphereVertexShader,

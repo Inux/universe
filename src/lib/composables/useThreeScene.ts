@@ -47,6 +47,9 @@ export function useThreeScene(
     // Hitbox meshes for easier clicking (invisible, larger spheres)
     const hitboxMeshes = new Map<string, THREE.Mesh>();
 
+    // Cached arrays for raycasting (avoid Array.from() on every click)
+    let cachedRaycastTargets: THREE.Object3D[] | null = null;
+
     // Planet label sprites
     const labelSprites = new Map<string, THREE.Sprite>();
     let labelsVisible = false;
@@ -145,7 +148,7 @@ export function useThreeScene(
             const planetData = SOLAR_SYSTEM[name];
             const visualSize = getLogarithmicSize(planetData.radius);
 
-            const geometry = new THREE.SphereGeometry(visualSize * hitboxScale, 16, 16);
+            const geometry = new THREE.SphereGeometry(visualSize * hitboxScale, 8, 8);
             const material = new THREE.MeshBasicMaterial({
                 visible: false, // Invisible
                 transparent: true,
@@ -228,13 +231,15 @@ export function useThreeScene(
 
         raycaster.setFromCamera(mouse, camera.value);
 
-        // Use hitboxes for planet detection (larger click targets)
-        const hitboxArray = Array.from(hitboxMeshes.values());
-        const planetMeshes = Array.from(solarSystemObjects.value.planets.values()).map(b => b.mesh);
-        const moonMeshes = Array.from(solarSystemObjects.value.moons.values());
-        const allBodies = [...hitboxArray, ...planetMeshes, ...moonMeshes];
+        // Build cached raycast targets array (invalidated when solar system changes)
+        if (!cachedRaycastTargets) {
+            const hitboxArray = Array.from(hitboxMeshes.values());
+            const planetMeshes = Array.from(solarSystemObjects.value.planets.values()).map(b => b.mesh);
+            const moonMeshes = Array.from(solarSystemObjects.value.moons.values());
+            cachedRaycastTargets = [...hitboxArray, ...planetMeshes, ...moonMeshes];
+        }
 
-        const intersects = raycaster.intersectObjects(allBodies);
+        const intersects = raycaster.intersectObjects(cachedRaycastTargets);
 
         if (intersects.length > 0) {
             const hitObject = intersects[0].object;

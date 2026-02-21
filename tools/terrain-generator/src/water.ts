@@ -540,17 +540,16 @@ export class WaterSystemGenerator {
         let minY = startY, maxY = startY;
         let touchesEdge = false;
 
+        // Mark start as visited before processing
+        const startIdx = startY * this.width + startX;
+        visited[startIdx] = 1;
+
         while (queueHead < queueTail) {
             const x = queueX[queueHead];
             const y = queueY[queueHead];
             queueHead++;
 
             const idx = y * this.width + x;
-
-            if (visited[idx]) continue;
-            if (this.heightmap[idx] > this.seaLevel) continue;
-
-            visited[idx] = 1;
             cellIndices.push(idx);
 
             // Update bounds
@@ -567,7 +566,7 @@ export class WaterSystemGenerator {
             // Mark as lake or ocean in water mask (will update later if needed)
             this.waterMask[idx] = 2;
 
-            // Add neighbors
+            // Add unvisited neighbors below sea level (mark visited on enqueue to prevent duplicates)
             for (let d = 0; d < 8; d++) {
                 const nx = x + WaterSystemGenerator.DX[d];
                 const ny = y + WaterSystemGenerator.DY[d];
@@ -576,6 +575,7 @@ export class WaterSystemGenerator {
 
                 const nIdx = ny * this.width + nx;
                 if (!visited[nIdx] && this.heightmap[nIdx] <= this.seaLevel) {
+                    visited[nIdx] = 1;
                     queueX[queueTail] = nx;
                     queueY[queueTail] = ny;
                     queueTail++;

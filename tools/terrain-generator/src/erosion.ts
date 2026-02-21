@@ -22,10 +22,57 @@ export class HydraulicErosion {
     private initialWaterVolume = 1;
     private initialSpeed = 1;
 
-    constructor(heightmapData: HeightmapData) {
+    // Precomputed erosion kernel (offsets and normalized weights)
+    private kernelOffsets: Array<{ dx: number; dy: number }> = [];
+    private kernelWeights: Float32Array = new Float32Array(0);
+
+    // Seeded PRNG state
+    private rngState: number;
+
+    constructor(heightmapData: HeightmapData, seed: number = 42) {
         this.width = heightmapData.width;
         this.height = heightmapData.height;
         this.heightmap = new Float32Array(heightmapData.data);
+        this.rngState = seed;
+        this.precomputeKernel();
+    }
+
+    /**
+     * Seeded pseudo-random number generator (0-1 range)
+     */
+    private nextRandom(): number {
+        this.rngState = (this.rngState * 9301 + 49297) % 233280;
+        return this.rngState / 233280;
+    }
+
+    /**
+     * Precompute erosion/deposition kernel weights for the configured radius.
+     * Weights are normalized so they sum to 1.0.
+     */
+    private precomputeKernel(): void {
+        const offsets: Array<{ dx: number; dy: number }> = [];
+        const rawWeights: number[] = [];
+        let totalWeight = 0;
+
+        for (let dy = -this.erosionRadius; dy <= this.erosionRadius; dy++) {
+            for (let dx = -this.erosionRadius; dx <= this.erosionRadius; dx++) {
+                const distSq = dx * dx + dy * dy;
+                const radiusSq = this.erosionRadius * this.erosionRadius;
+                if (distSq > radiusSq) continue;
+
+                const dist = Math.sqrt(distSq);
+                const weight = 1 - dist / this.erosionRadius;
+                offsets.push({ dx, dy });
+                rawWeights.push(weight);
+                totalWeight += weight;
+            }
+        }
+
+        this.kernelOffsets = offsets;
+        this.kernelWeights = new Float32Array(rawWeights.length);
+        for (let i = 0; i < rawWeights.length; i++) {
+            this.kernelWeights[i] = rawWeights[i] / totalWeight;
+        }
     }
 
     /**
@@ -53,9 +100,9 @@ export class HydraulicErosion {
      * Simulate a single water droplet
      */
     private simulateDroplet(): void {
-        // Random starting position
-        let posX = Math.random() * (this.width - 1);
-        let posY = Math.random() * (this.height - 1);
+        // Seeded random starting position for reproducible results
+        let posX = this.nextRandom() * (this.width - 1);
+        let posY = this.nextRandom() * (this.height - 1);
 
         let dirX = 0;
         let dirY = 0;
@@ -162,64 +209,46 @@ export class HydraulicErosion {
     }
 
     /**
-     * Erode at a position and return amount eroded
+     * Erode at a position using precomputed kernel and return amount eroded
      */
     private erodeSediment(posX: number, posY: number, amount: number): number {
         const coordX = Math.floor(posX);
         const coordY = Math.floor(posY);
-
-        // Distribute erosion in a circle around the point
         let totalEroded = 0;
 
-        for (let dy = -this.erosionRadius; dy <= this.erosionRadius; dy++) {
-            for (let dx = -this.erosionRadius; dx <= this.erosionRadius; dx++) {
-                const x = coordX + dx;
-                const y = coordY + dy;
+        for (let i = 0; i < this.kernelOffsets.length; i++) {
+            const x = coordX + this.kernelOffsets[i].dx;
+            const y = coordY + this.kernelOffsets[i].dy;
 
-                if (x < 0 || x >= this.width || y < 0 || y >= this.height) continue;
+            if (x < 0 || x >= this.width || y < 0 || y >= this.height) continue;
 
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist > this.erosionRadius) continue;
-
-                const weight = 1 - dist / this.erosionRadius;
-                const erodeAmount = amount * weight;
-
-                const idx = y * this.width + x;
-                const newHeight = this.heightmap[idx] - erodeAmount;
-                // Prevent NaN corruption
-                this.heightmap[idx] = isNaN(newHeight) ? this.heightmap[idx] : Math.max(0, newHeight);
-                totalEroded += erodeAmount;
-            }
+            const erodeAmount = amount * this.kernelWeights[i];
+            const idx = y * this.width + x;
+            const newHeight = this.heightmap[idx] - erodeAmount;
+            this.heightmap[idx] = isNaN(newHeight) ? this.heightmap[idx] : Math.max(0, newHeight);
+            totalEroded += erodeAmount;
         }
 
         return totalEroded;
     }
 
     /**
-     * Deposit sediment at a position
+     * Deposit sediment at a position using precomputed kernel
      */
     private depositSediment(posX: number, posY: number, amount: number): void {
         const coordX = Math.floor(posX);
         const coordY = Math.floor(posY);
 
-        for (let dy = -this.erosionRadius; dy <= this.erosionRadius; dy++) {
-            for (let dx = -this.erosionRadius; dx <= this.erosionRadius; dx++) {
-                const x = coordX + dx;
-                const y = coordY + dy;
+        for (let i = 0; i < this.kernelOffsets.length; i++) {
+            const x = coordX + this.kernelOffsets[i].dx;
+            const y = coordY + this.kernelOffsets[i].dy;
 
-                if (x < 0 || x >= this.width || y < 0 || y >= this.height) continue;
+            if (x < 0 || x >= this.width || y < 0 || y >= this.height) continue;
 
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist > this.erosionRadius) continue;
-
-                const weight = 1 - dist / this.erosionRadius;
-                const depositAmount = amount * weight;
-
-                const idx = y * this.width + x;
-                const newHeight = this.heightmap[idx] + depositAmount;
-                // Prevent NaN corruption
-                this.heightmap[idx] = isNaN(newHeight) ? this.heightmap[idx] : newHeight;
-            }
+            const depositAmount = amount * this.kernelWeights[i];
+            const idx = y * this.width + x;
+            const newHeight = this.heightmap[idx] + depositAmount;
+            this.heightmap[idx] = isNaN(newHeight) ? this.heightmap[idx] : newHeight;
         }
     }
 
@@ -278,7 +307,10 @@ export class ThermalErosion {
                 const currentHeight = this.heightmap[idx];
 
                 let totalDiff = 0;
-                let count = 0;
+                // Collect steep neighbor indices in a single pass
+                let steepCount = 0;
+                const steepIndices: number[] = [];
+                const steepDiffs: number[] = [];
 
                 // Check 8 neighbors
                 for (let dy = -1; dy <= 1; dy++) {
@@ -289,36 +321,27 @@ export class ThermalErosion {
                         const ny = y + dy;
                         const nIdx = ny * this.width + nx;
 
-                        const neighborHeight = this.heightmap[nIdx];
-                        const diff = currentHeight - neighborHeight;
+                        const diff = currentHeight - this.heightmap[nIdx];
 
-                        // If slope is too steep, erode
+                        // Only consider neighbors exceeding talus angle
                         if (diff > this.talusAngle) {
                             totalDiff += diff;
-                            count++;
+                            steepIndices[steepCount] = nIdx;
+                            steepDiffs[steepCount] = diff;
+                            steepCount++;
                         }
                     }
                 }
 
-                if (count > 0) {
-                    const avgDiff = totalDiff / count;
-                    const transferAmount = avgDiff * 0.5; // Transfer half the excess
+                if (steepCount > 0) {
+                    const avgDiff = totalDiff / steepCount;
+                    const transferAmount = avgDiff * 0.5;
 
                     newHeightmap[idx] -= transferAmount;
 
-                    // Distribute to lower neighbors
-                    for (let dy = -1; dy <= 1; dy++) {
-                        for (let dx = -1; dx <= 1; dx++) {
-                            if (dx === 0 && dy === 0) continue;
-
-                            const nx = x + dx;
-                            const ny = y + dy;
-                            const nIdx = ny * this.width + nx;
-
-                            if (this.heightmap[nIdx] < currentHeight) {
-                                newHeightmap[nIdx] += transferAmount / count;
-                            }
-                        }
+                    // Distribute proportionally to the steep neighbors only
+                    for (let i = 0; i < steepCount; i++) {
+                        newHeightmap[steepIndices[i]] += transferAmount * (steepDiffs[i] / totalDiff);
                     }
                 }
             }

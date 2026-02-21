@@ -49,17 +49,19 @@ export class NoiseGenerator {
         let total = 0;
         let amplitude = 1;
         let frequency = 1;
+        let maxValue = 0;
 
         for (let i = 0; i < octaves; i++) {
             let signal = this.noise2D(x * frequency, y * frequency);
             signal = 1.0 - Math.abs(signal); // Create ridges
             signal = signal * signal; // Square for sharper ridges
             total += signal * amplitude;
+            maxValue += amplitude; // Track max possible value for normalization
             amplitude *= persistence;
             frequency *= 2.0;
         }
 
-        return total;
+        return total / maxValue;
     }
 
     /**
@@ -104,7 +106,8 @@ export class NoiseGenerator {
         const ix = Math.floor(x / cellSize);
         const iy = Math.floor(y / cellSize);
 
-        let minDist = Infinity;
+        let minDistSq = Infinity;
+        const maxDistSq = (cellSize * 1.5) * (cellSize * 1.5);
 
         // Check 3x3 grid of cells
         for (let dx = -1; dx <= 1; dx++) {
@@ -112,17 +115,19 @@ export class NoiseGenerator {
                 const cellX = (ix + dx) * cellSize;
                 const cellY = (iy + dy) * cellSize;
 
-                // Random point within cell
+                // Random point within cell (hash returns 0-1, multiply by cellSize for offset)
                 const seed = (cellX * 73856093) ^ (cellY * 19349663);
-                const pointX = cellX + (this.hash(seed) % cellSize);
-                const pointY = cellY + (this.hash(seed + 1) % cellSize);
+                const pointX = cellX + this.hash(seed) * cellSize;
+                const pointY = cellY + this.hash(seed + 1) * cellSize;
 
-                const dist = Math.sqrt((x - pointX) ** 2 + (y - pointY) ** 2);
-                minDist = Math.min(minDist, dist);
+                const ddx = x - pointX;
+                const ddy = y - pointY;
+                const distSq = ddx * ddx + ddy * ddy;
+                if (distSq < minDistSq) minDistSq = distSq;
             }
         }
 
-        return 1.0 - Math.min(minDist / (cellSize * 1.5), 1.0);
+        return 1.0 - Math.min(Math.sqrt(minDistSq / maxDistSq), 1.0);
     }
 
     /**
