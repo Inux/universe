@@ -194,9 +194,8 @@ export function createUranusRings(planetRadius: number): THREE.Mesh {
 
     const ring = new THREE.Mesh(geometry, material);
 
-    // Uranus has tilted rings (97.77 degrees axial tilt)
+    // Equatorial. The planet root applies Uranus's 97.77° obliquity.
     ring.rotation.x = -Math.PI / 2;
-    ring.rotation.y = Math.PI * 0.54; // Approximate tilt
 
     return ring;
 }

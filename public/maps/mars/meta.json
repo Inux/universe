@@ -1,0 +1,8 @@
+{
+  "width": 5760,
+  "height": 2880,
+  "min": -8177.0,
+  "max": 21171.0,
+  "radiusKm": 3389.5,
+  "sources": "Elevation: NASA MGS MOLA MEGDR topography, 16 pixels per degree (megt90n000eb), public domain. Color: Solar System Scope 8k Mars (CC BY 4.0), resized. Vertical scale is exaggerated in the viewer."
+}

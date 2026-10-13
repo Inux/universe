@@ -43,7 +43,19 @@ export interface TerrainConfig {
     atmosphereColor?: THREE.Color;
     gravity: number;             // Surface gravity in m/s²
     hasBiomes?: boolean;         // Enable biome system (Earth only)
+    /** Displayed height range after the heightmap is normalized to 0–1. */
+    relief?: number;
+    /** Latitude belts for a cloud deck. Colored by position, not by elevation. */
+    cloudBands?: THREE.Color[];
+    /** Self-illuminated surface. The day/night cycle stays at full light. */
+    selfLit?: boolean;
 }
+
+/**
+ * Vertical size of a heightmap after it is normalized to 0–1.
+ * Water level is a fraction of this, matching the displaced mesh.
+ */
+export const TERRAIN_DISPLAY_HEIGHT = 30;
 
 /**
  * Planet-specific terrain configurations
@@ -108,46 +120,78 @@ export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
     jupiter: {
         noiseFrequency: 0.8,
         amplitude: 0.02,
-        octaves: 3,
-        persistence: 0.7,
+        octaves: 4,
+        persistence: 0.55,
         lacunarity: 2.0,
         baseColor: new THREE.Color(0xd4a574),
         secondaryColor: new THREE.Color(0xc98b4a),
         atmosphereColor: new THREE.Color(0xffddaa),
         gravity: 24.79,
+        relief: 8,
+        cloudBands: [
+            new THREE.Color(0xf2e2c4),
+            new THREE.Color(0xc4844a),
+            new THREE.Color(0xe8d2a8),
+            new THREE.Color(0xa86b3c),
+            new THREE.Color(0xf6ead0),
+            new THREE.Color(0xb56a48),
+        ],
     },
     saturn: {
         noiseFrequency: 0.7,
         amplitude: 0.02,
-        octaves: 3,
-        persistence: 0.7,
+        octaves: 4,
+        persistence: 0.55,
         lacunarity: 2.0,
         baseColor: new THREE.Color(0xe8d5a3),
         secondaryColor: new THREE.Color(0xc9b896),
         atmosphereColor: new THREE.Color(0xffeebb),
         gravity: 10.44,
+        relief: 6,
+        cloudBands: [
+            new THREE.Color(0xf7f0d8),
+            new THREE.Color(0xe0c48a),
+            new THREE.Color(0xf3e6c4),
+            new THREE.Color(0xd7b56a),
+            new THREE.Color(0xefe0b0),
+        ],
     },
     uranus: {
         noiseFrequency: 0.6,
         amplitude: 0.015,
         octaves: 3,
-        persistence: 0.6,
+        persistence: 0.5,
         lacunarity: 2.0,
         baseColor: new THREE.Color(0x88ddff),
         secondaryColor: new THREE.Color(0x66bbdd),
-        atmosphereColor: new THREE.Color(0x88ddff),
+        atmosphereColor: new THREE.Color(0xb7f3ff),
         gravity: 8.69,
+        relief: 4,
+        cloudBands: [
+            new THREE.Color(0xd8fbff),
+            new THREE.Color(0x9ad7ea),
+            new THREE.Color(0xc6f4ff),
+            new THREE.Color(0x7ec8dc),
+        ],
     },
     neptune: {
         noiseFrequency: 0.6,
         amplitude: 0.015,
         octaves: 3,
-        persistence: 0.6,
+        persistence: 0.5,
         lacunarity: 2.0,
         baseColor: new THREE.Color(0x4466ff),
         secondaryColor: new THREE.Color(0x3355dd),
         atmosphereColor: new THREE.Color(0x6688ff),
         gravity: 11.15,
+        relief: 5,
+        cloudBands: [
+            new THREE.Color(0x6a88ff),
+            new THREE.Color(0x2a3eb8),
+            new THREE.Color(0x3d5dff),
+            new THREE.Color(0x2436a0),
+            new THREE.Color(0x4d6cf0),
+        ],
     },
     // Dwarf planets
     pluto: {
@@ -189,6 +233,19 @@ export const TERRAIN_CONFIGS: { [key: string]: TerrainConfig } = {
         baseColor: new THREE.Color(0xf5f5dc),
         secondaryColor: new THREE.Color(0xdcdcdc),
         gravity: 0.44,
+    },
+    sun: {
+        noiseFrequency: 2.4,
+        amplitude: 0.15,
+        octaves: 5,
+        persistence: 0.55,
+        lacunarity: 2.1,
+        baseColor: new THREE.Color(0xfff1a8),
+        secondaryColor: new THREE.Color(0xe25a12),
+        atmosphereColor: new THREE.Color(0xffc46b),
+        gravity: 274,
+        relief: 6,
+        selfLit: true,
     },
 };
 
@@ -268,6 +325,7 @@ export class TerrainGenerator {
     private _blendedColor = new THREE.Color();
     private _biomeColor = new THREE.Color();
     private _snowColor = new THREE.Color(0.95, 0.97, 1.0);
+    private _cloudHighlight = new THREE.Color(1, 0.97, 0.9);
     private _tempColor = new THREE.Color();
 
     constructor(config: TerrainConfig, seed?: number) {
@@ -374,16 +432,25 @@ export class TerrainGenerator {
     }
 
     /**
-     * Generate height for spherical coordinates (for planet surfaces)
+     * Height on the unit sphere. `detail` multiplies the base frequency so
+     * hills can be walk-scale without changing the 2D height field.
+     * `theta`/`phi` match the historical mapping: x = sin(phi) cos(theta), z = cos(phi).
      */
-    public getSphericalHeight(theta: number, phi: number): number {
-        // Convert spherical to 3D noise coordinates
+    public getSphericalHeight(theta: number, phi: number, detail = 1): number {
         const x = Math.sin(phi) * Math.cos(theta);
         const y = Math.sin(phi) * Math.sin(theta);
         const z = Math.cos(phi);
+        return this.sphericalHeightOnDirection(x, y, z, detail);
+    }
 
+    /**
+     * Same noise as getSphericalHeight, sampled on a direction so the mesh
+     * and the collider cannot disagree about theta/phi.
+     * Returns 0..amplitude. `detail` 1 keeps the original frequency.
+     */
+    public sphericalHeightOnDirection(x: number, y: number, z: number, detail = 1): number {
         let amplitude = 1;
-        let frequency = this.config.noiseFrequency;
+        let frequency = this.config.noiseFrequency * detail;
         let height = 0;
         let maxValue = 0;
 
@@ -398,9 +465,7 @@ export class TerrainGenerator {
             frequency *= this.config.lacunarity;
         }
 
-        // Normalize to 0-1 range
         height = (height / maxValue + 1) / 2;
-
         return height * this.config.amplitude;
     }
 
@@ -447,6 +512,22 @@ export class TerrainGenerator {
      */
     public getColor(height: number, x?: number, y?: number): THREE.Color {
         const normalizedHeight = height / this.config.amplitude;
+
+        const bands = this.config.cloudBands;
+        if (bands && bands.length > 1 && y !== undefined) {
+            // Belts run across the patch. A small sine keeps them from being ruled lines.
+            const phase = y * 2.1 + Math.sin((x ?? 0) * 0.55) * 0.35;
+            const span = bands.length;
+            const wrapped = ((phase % span) + span) % span;
+            const i0 = Math.floor(wrapped) % span;
+            const i1 = (i0 + 1) % span;
+            const f = wrapped - Math.floor(wrapped);
+            const smooth = f * f * (3 - 2 * f);
+            this._tempColor.lerpColors(bands[i0], bands[i1], smooth);
+            const crest = Math.min(1, Math.max(0, normalizedHeight));
+            this._tempColor.lerp(this._cloudHighlight, crest * 0.2);
+            return this._tempColor;
+        }
 
         // Check for water
         if (this.config.waterLevel && normalizedHeight < this.config.waterLevel) {
@@ -575,8 +656,7 @@ export function createTerrainMesh(
     const colors: number[] = [];
     const heights = new Float32Array(positions.count); // Store heights as typed array
 
-    // Height scaling - make terrain more dramatic
-    const heightScale = 30; // Max height variation in units
+    const heightScale = config.relief ?? TERRAIN_DISPLAY_HEIGHT;
 
     // Tile size for seamless wrapping (in noise coordinates)
     const tileSize = 3.0;
@@ -616,16 +696,18 @@ export function createTerrainMesh(
 
     const material = new THREE.MeshStandardMaterial({
         vertexColors: true,
-        flatShading: false, // Smooth shading for better look
-        roughness: 0.8,
+        flatShading: false,
+        roughness: config.selfLit ? 0.95 : 0.8,
         metalness: 0.1,
+        emissive: config.selfLit ? new THREE.Color(0xffb347) : new THREE.Color(0x000000),
+        emissiveIntensity: config.selfLit ? 0.4 : 0,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = Math.PI; // Flip 180° to correct orientation
     mesh.receiveShadow = true;
-    mesh.castShadow = true;
+    mesh.castShadow = false;
 
     // Calculate height range for consistent API with pre-generated terrain
     let minH = Infinity;
@@ -669,7 +751,7 @@ export async function createTerrainFromPreGenerated(
     const generator = new TerrainGenerator(config, planetName.length * 1000);
 
     // Height scaling
-    const heightScale = 30; // Match the generator scale
+    const heightScale = TERRAIN_DISPLAY_HEIGHT;
 
     // Apply heights from pre-generated heightmap
     for (let i = 0; i < positions.count; i++) {
@@ -1062,7 +1144,9 @@ export async function createTerrainFromPreGenerated(
     mesh.rotation.x = -Math.PI / 2;
     mesh.rotation.z = Math.PI;
     mesh.receiveShadow = true;
-    mesh.castShadow = true;
+    // The ground receives prop shadows. Casting from the whole heightfield
+    // restates the same mesh into the shadow map for little visual gain.
+    mesh.castShadow = false;
 
     // Create scaled heights array for collision/minimap (matches rendered mesh)
     // Heights are normalized to [0,1] then scaled by heightScale
@@ -1273,65 +1357,151 @@ export function getTerrainHeight(terrain: THREE.Mesh, worldX: number, worldZ: nu
     return height;
 }
 
+/** First-octave cycles around the unit sphere. 7 × circumference of radius 480 ≈ 430 units. */
+export const SPHERE_NOISE_DETAIL = 7;
+
+const SPHERE_SNOW = new THREE.Color(0.95, 0.97, 1.0);
+const SPHERE_CLOUD_HIGHLIGHT = new THREE.Color(1, 0.97, 0.9);
+const SPHERE_WATER_FALLBACK = new THREE.Color(0x1a5f7a);
+const _sphereColor = new THREE.Color();
+
 /**
- * Creates a spherical terrain mesh for walking around a planet
- * Uses higher resolution and proper height displacement
+ * Absolute radius of the water shell, or -1 when the body has no water.
+ * Matches the radial relief: Earth waterLevel 0.35 and relief 30 → +10.5.
+ */
+export function sphericalWaterRadius(radius: number, config: TerrainConfig): number {
+    if (config.waterLevel == null || !config.waterColor) return -1;
+    const relief = config.relief ?? TERRAIN_DISPLAY_HEIGHT;
+    return radius + config.waterLevel * relief;
+}
+
+/** Copy a color into `out`. The generator's getColor reuses one object, so this does not call it. */
+function writeSphereColor(
+    config: TerrainConfig,
+    dirY: number,
+    lon: number,
+    normalized: number,
+    out: THREE.Color,
+): void {
+    const bands = config.cloudBands;
+    if (bands && bands.length > 1) {
+        const phase = (dirY + 1) * bands.length + Math.sin(lon * 5) * 0.35;
+        const span = bands.length;
+        const wrapped = ((phase % span) + span) % span;
+        const i0 = Math.floor(wrapped) % span;
+        const i1 = (i0 + 1) % span;
+        const f = wrapped - Math.floor(wrapped);
+        const smooth = f * f * (3 - 2 * f);
+        out.lerpColors(bands[i0], bands[i1], smooth);
+        const crest = Math.min(1, Math.max(0, normalized));
+        out.lerp(SPHERE_CLOUD_HIGHLIGHT, crest * 0.2);
+        return;
+    }
+
+    if (config.waterLevel != null && normalized < config.waterLevel) {
+        out.copy(config.waterColor ?? SPHERE_WATER_FALLBACK);
+        return;
+    }
+
+    const t = Math.min(1, Math.max(0, normalized));
+    out.lerpColors(config.baseColor, config.secondaryColor, t);
+    if (t > 0.72) {
+        out.lerp(SPHERE_SNOW, Math.min(1, (t - 0.72) / 0.28));
+    }
+}
+
+/**
+ * Closed planet surface. Vertices and `userData.radiusAt` share one noise function,
+ * so the ground you walk is the ground you see. The square heightmaps are not wrapped on.
  */
 export function createSphericalTerrain(
     planetName: string,
-    radius: number = 100,
-    resolution: number = 128
+    radius: number = 480,
+    widthSegments: number = 256,
+    heightSegments: number = 128,
 ): THREE.Mesh {
     const config = TERRAIN_CONFIGS[planetName] || TERRAIN_CONFIGS.earth;
     const generator = new TerrainGenerator(config, planetName.length * 1000);
+    const relief = config.relief ?? TERRAIN_DISPLAY_HEIGHT;
+    const amplitude = config.amplitude || 1;
+    const detail = SPHERE_NOISE_DETAIL;
 
-    const geometry = new THREE.SphereGeometry(radius, resolution, resolution);
+    const radiusAt = (dir: THREE.Vector3): number => {
+        const x = dir.x;
+        const y = dir.y;
+        const z = dir.z;
+        const len = Math.hypot(x, y, z) || 1;
+        const height = generator.sphericalHeightOnDirection(x / len, y / len, z / len, detail);
+        return radius + (height / amplitude) * relief;
+    };
+
+    const geometry = new THREE.SphereGeometry(radius, widthSegments, heightSegments);
     const positions = geometry.attributes.position;
-    const colors: number[] = [];
+    const colors = new Float32Array(positions.count * 3);
 
-    // Displace vertices based on noise
     for (let i = 0; i < positions.count; i++) {
         const x = positions.getX(i);
         const y = positions.getY(i);
         const z = positions.getZ(i);
+        const len = Math.hypot(x, y, z) || 1;
+        const nx = x / len;
+        const ny = y / len;
+        const nz = z / len;
+        const height = generator.sphericalHeightOnDirection(nx, ny, nz, detail);
+        const radial = radius + (height / amplitude) * relief;
+        positions.setXYZ(i, nx * radial, ny * radial, nz * radial);
 
-        // Convert to spherical coordinates
-        const r = Math.sqrt(x * x + y * y + z * z);
-        const theta = Math.atan2(z, x);
-        const phi = Math.acos(y / r);
-
-        const height = generator.getSphericalHeight(theta, phi);
-        const displacement = 1 + height * 0.5; // Scale down height for walkable terrain
-
-        // Apply displacement along the normal (radial direction)
-        const nx = x / r;
-        const ny = y / r;
-        const nz = z / r;
-
-        positions.setX(i, nx * radius * displacement);
-        positions.setY(i, ny * radius * displacement);
-        positions.setZ(i, nz * radius * displacement);
-
-        // Get color for this height
-        const color = generator.getColor(height);
-        colors.push(color.r, color.g, color.b);
+        writeSphereColor(config, ny, Math.atan2(nx, nz), height / amplitude, _sphereColor);
+        colors[i * 3] = _sphereColor.r;
+        colors[i * 3 + 1] = _sphereColor.g;
+        colors[i * 3 + 2] = _sphereColor.b;
     }
 
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geometry.computeVertexNormals();
+
+    const minimapW = 360;
+    const minimapH = 180;
+    const minimap = new Uint8Array(minimapW * minimapH * 3);
+    for (let iy = 0; iy < minimapH; iy++) {
+        const lat = (0.5 - (iy + 0.5) / minimapH) * Math.PI;
+        const cosLat = Math.cos(lat);
+        const sy = Math.sin(lat);
+        for (let ix = 0; ix < minimapW; ix++) {
+            const lon = ((ix + 0.5) / minimapW - 0.5) * Math.PI * 2;
+            const sx = Math.sin(lon) * cosLat;
+            const sz = Math.cos(lon) * cosLat;
+            const height = generator.sphericalHeightOnDirection(sx, sy, sz, detail);
+            writeSphereColor(config, sy, lon, height / amplitude, _sphereColor);
+            const o = (iy * minimapW + ix) * 3;
+            minimap[o] = Math.round(Math.min(1, Math.max(0, _sphereColor.r)) * 255);
+            minimap[o + 1] = Math.round(Math.min(1, Math.max(0, _sphereColor.g)) * 255);
+            minimap[o + 2] = Math.round(Math.min(1, Math.max(0, _sphereColor.b)) * 255);
+        }
+    }
 
     const material = new THREE.MeshStandardMaterial({
         vertexColors: true,
         flatShading: false,
-        roughness: 0.9,
+        roughness: config.selfLit ? 0.95 : 0.85,
         metalness: 0.05,
+        emissive: config.selfLit ? new THREE.Color(0xffb347) : new THREE.Color(0x000000),
+        emissiveIntensity: config.selfLit ? 0.4 : 0,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
+    mesh.userData.spherical = true;
     mesh.userData.isSphericalTerrain = true;
+    mesh.userData.planetRadius = radius;
     mesh.userData.radius = radius;
+    mesh.userData.relief = relief;
+    mesh.userData.waterRadius = sphericalWaterRadius(radius, config);
+    mesh.userData.radiusAt = radiusAt;
+    mesh.userData.minimapColors = minimap;
+    mesh.userData.minimapWidth = minimapW;
+    mesh.userData.minimapHeight = minimapH;
 
     return mesh;
 }
@@ -1343,10 +1513,10 @@ export function createSphericalWater(
     radius: number,
     config: TerrainConfig
 ): THREE.Mesh | null {
-    if (!config.waterLevel || !config.waterColor) return null;
+    const waterRadius = sphericalWaterRadius(radius, config);
+    if (waterRadius < 0) return null;
 
-    const waterRadius = radius * (1 + config.waterLevel * config.amplitude * 0.25);
-    const geometry = new THREE.SphereGeometry(waterRadius, 64, 64);
+    const geometry = new THREE.SphereGeometry(waterRadius, 128, 64);
 
     const material = new THREE.ShaderMaterial({
         uniforms: {
@@ -1596,7 +1766,8 @@ export function createWaterPlane(size: number, config: TerrainConfig): THREE.Mes
 
     const water = new THREE.Mesh(geometry, material);
     water.rotation.x = -Math.PI / 2;
-    water.position.y = config.waterLevel * config.amplitude * size * 0.5;
+    // waterLevel is a fraction of the displayed height range (0 = lowest point).
+    water.position.y = config.waterLevel * TERRAIN_DISPLAY_HEIGHT;
     water.userData.isWater = true;
 
     return water;

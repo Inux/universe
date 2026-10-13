@@ -6,13 +6,20 @@
       <!-- Loading overlay -->
       <div v-if="isLoading" class="loading-overlay">
         <div class="loading-spinner"></div>
-        <div class="loading-text">Loading {{ displayPlanet }} terrain...</div>
+        <div class="loading-text">Loading {{ displayPlanet }} {{ loadingNoun }}...</div>
       </div>
 
       <!-- HUD -->
       <div class="surface-hud">
         <div class="planet-name">{{ displayPlanet?.toUpperCase() }}</div>
         <div class="gravity-info">Gravity: {{ gravityDisplay }} m/s²</div>
+        <div class="mode-row">
+          <span class="mode-badge">{{ modeLabel }}</span>
+          <button v-if="showWalkToggle" class="mode-btn" @click="toggleMode">
+            {{ shownMode === 'walk' ? 'Fly over' : 'Land and walk' }}
+          </button>
+        </div>
+        <p v-if="!showWalkToggle" class="mode-note">{{ flyOnlyNote }}</p>
         <div class="hud-row">
           <span class="hud-label">Heading</span>
           <span class="hud-value">{{ headingDisplay }}</span>
@@ -20,6 +27,10 @@
         <div class="hud-row">
           <span class="hud-label">Coords</span>
           <span class="hud-value mono">{{ coordsDisplay }}</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-label">Altitude</span>
+          <span class="hud-value mono">{{ altitudeDisplay }}</span>
         </div>
         <div class="hud-row">
           <span class="hud-label">Time</span>
@@ -38,9 +49,19 @@
 
       <!-- Controls hint -->
       <div class="controls-hint" v-if="showControlsHint">
-        <div class="hint-row"><span class="key">W A S D</span> Move</div>
-        <div class="hint-row"><span class="key">SPACE</span> Jump</div>
+        <template v-if="shownMode === 'fly'">
+          <div class="hint-row"><span class="key">W A S D</span> Fly</div>
+          <div class="hint-row"><span class="key">SPACE</span> Rise</div>
+          <div class="hint-row"><span class="key">CTRL</span> Descend</div>
+          <div class="hint-row"><span class="key">SHIFT</span> Faster</div>
+        </template>
+        <template v-else>
+          <div class="hint-row"><span class="key">W A S D</span> Move</div>
+          <div class="hint-row"><span class="key">SPACE</span> Jump</div>
+          <div class="hint-row"><span class="key">SHIFT</span> Sprint</div>
+        </template>
         <div class="hint-row"><span class="key">MOUSE</span> Look around</div>
+        <div class="hint-row" v-if="showWalkToggle"><span class="key">F</span> {{ shownMode === 'walk' ? 'Fly over' : 'Land and walk' }}</div>
         <div class="hint-row"><span class="key">ESC</span> Return to orbit</div>
       </div>
 
@@ -53,13 +74,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { useSurfaceView } from '../composables/useSurfaceView';
 import { TERRAIN_CONFIGS } from '../three/terrain';
+import { canWalkSurface, surfaceKind, type ExploreMode } from '../three/exploration';
 import Minimap from './Minimap.vue';
 
 const props = defineProps<{
   planet: string | null;
+  mode: ExploreMode;
   shouldEnter: boolean;
 }>();
 
@@ -75,11 +98,15 @@ const {
   isActive,
   isLoading,
   currentPlanet,
+  exploreMode,
+  canWalk,
+  altitude,
   playerPosition,
   headingDeg,
   timeOfDay,
   getTerrainMesh,
   getTerrainSize,
+  setExploreMode,
   enter,
   exit,
 } = useSurfaceView(canvasContainer, {
@@ -97,9 +124,49 @@ const gravityDisplay = computed(() => {
   return config?.gravity.toFixed(2) || '9.81';
 });
 
-const headingDisplay = computed(() => `${Math.round(headingDeg.value)}°`);
+const showWalkToggle = computed(() => (isActive.value ? canWalk.value : props.planet ? canWalkSurface(props.planet) : false));
+const shownMode = computed(() => (isActive.value ? exploreMode.value : props.mode));
+const modeLabel = computed(() => (shownMode.value === 'fly' ? 'Flying' : 'Walking'));
+const loadingNoun = computed(() => {
+  const planet = displayPlanet.value;
+  if (!planet) return 'terrain';
+  const kind = surfaceKind(planet);
+  if (kind === 'photosphere') return 'photosphere';
+  if (kind === 'cloud') return 'cloud deck';
+  return props.mode === 'fly' ? 'flyover' : 'terrain';
+});
+const flyOnlyNote = computed(() =>
+  displayPlanet.value === 'sun'
+    ? 'No surface to stand on. Fly over the photosphere.'
+    : 'No solid surface. Fly over the cloud deck.'
+);
+const altitudeDisplay = computed(() => altitude.value.toFixed(1));
+
+function toggleMode() {
+  setExploreMode(exploreMode.value === 'walk' ? 'fly' : 'walk');
+  showControls();
+}
+
+function showControls() {
+  showControlsHint.value = true;
+  if (hideHintTimer) clearTimeout(hideHintTimer);
+  hideHintTimer = window.setTimeout(() => {
+    showControlsHint.value = false;
+  }, 5000);
+}
+
+const headingDisplay = computed(() => `${Math.round(headingDeg.value) % 360}°`);
 const coordsDisplay = computed(() => {
   const pos = playerPosition.value;
+  const mesh = getTerrainMesh();
+  if (mesh?.userData?.spherical) {
+    const len = Math.hypot(pos.x, pos.y, pos.z) || 1;
+    const lat = Math.asin(Math.max(-1, Math.min(1, pos.y / len))) * 180 / Math.PI;
+    const lon = Math.atan2(pos.x / len, pos.z / len) * 180 / Math.PI;
+    const ns = lat >= 0 ? 'N' : 'S';
+    const ew = lon >= 0 ? 'E' : 'W';
+    return `${Math.abs(lat).toFixed(1)}°${ns}  ${Math.abs(lon).toFixed(1)}°${ew}`;
+  }
   return `X ${pos.x.toFixed(1)}  Z ${pos.z.toFixed(1)}  Y ${pos.y.toFixed(1)}`;
 });
 const timeDisplay = computed(() => {
@@ -132,18 +199,11 @@ watch(
       // Give a small delay for the container to be fully ready
       setTimeout(() => {
         if (canvasContainer.value && props.planet) {
-          enter(props.planet);
+          enter(props.planet, props.mode);
         }
       }, 50);
 
-      // Reset and schedule controls hint fade-out
-      showControlsHint.value = true;
-      if (hideHintTimer) {
-        clearTimeout(hideHintTimer);
-      }
-      hideHintTimer = window.setTimeout(() => {
-        showControlsHint.value = false;
-      }, 5000);
+      showControls();
     }
   }
 );
@@ -230,7 +290,45 @@ defineExpose({
   font-size: 14px;
   opacity: 0.7;
   margin-top: 4px;
+  margin-bottom: 10px;
+}
+
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 12px;
+}
+
+.mode-badge {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mode-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: white;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.mode-note {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.75;
+  max-width: 280px;
 }
 
 .hud-row {
@@ -244,11 +342,14 @@ defineExpose({
 .hud-label {
   opacity: 0.7;
   font-size: 13px;
+  flex: 0 0 auto;
 }
 
 .hud-value {
   font-weight: 600;
   font-size: 14px;
+  margin-left: 10px;
+  text-align: right;
 }
 
 .mono {
@@ -305,22 +406,57 @@ defineExpose({
   transform: translateX(-4px);
 }
 
-/* Transition animations */
+/* Opacity only. A scale here freezes mid-zoom when terrain generation blocks the main thread. */
 .surface-enter-active {
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition: opacity 0.5s ease;
 }
 
 .surface-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: opacity 0.3s ease;
 }
 
-.surface-enter-from {
-  opacity: 0;
-  transform: scale(1.1);
-}
-
+.surface-enter-from,
 .surface-leave-to {
   opacity: 0;
-  transform: scale(0.95);
+}
+
+@media (max-width: 720px) {
+  .surface-hud {
+    top: 56px;
+    left: 10px;
+    max-width: calc(100% - 148px);
+    padding: 12px 14px;
+  }
+
+  .planet-name {
+    font-size: 22px;
+    letter-spacing: 2px;
+  }
+
+  .hud-row {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .hud-value {
+    font-size: 13px;
+  }
+
+  .mono {
+    font-size: 12px;
+  }
+
+  .exit-btn {
+    top: 56px;
+    right: 10px;
+    padding: 10px 12px;
+  }
+
+  .controls-hint {
+    left: 10px;
+    bottom: 12px;
+    max-width: calc(100% - 170px);
+    padding: 10px 12px;
+  }
 }
 </style>

@@ -81,11 +81,14 @@
         </div>
       </div>
 
-      <!-- Explore Button -->
-      <div v-if="planet !== 'sun'" class="panel-footer">
-        <button class="explore-btn" @click="handleExplore">
-          🚀 Explore Surface
+      <div v-if="planet" class="panel-footer">
+        <button v-if="canWalk" class="explore-btn" @click="emitExplore('walk')">
+          Walk the surface
         </button>
+        <button class="explore-btn" :class="{ secondary: canWalk }" @click="emitExplore('fly')">
+          Fly over
+        </button>
+        <p v-if="!canWalk" class="explore-note">{{ flyOnlyNote }}</p>
       </div>
     </div>
   </Transition>
@@ -95,6 +98,7 @@
 import { computed } from 'vue';
 import { SOLAR_SYSTEM, type PlanetData } from '../three/solarSystem';
 import { PLANET_INFO, type ExtendedPlanetInfo, getPlanetEmoji } from '../data/planetData';
+import { canWalkSurface, type ExploreMode } from '../three/exploration';
 
 const props = defineProps<{
   planet: string | null;
@@ -103,12 +107,19 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  explore: [planetName: string];
+  explore: [planetName: string, mode: ExploreMode];
 }>();
 
-function handleExplore() {
+const canWalk = computed(() => (props.planet ? canWalkSurface(props.planet) : false));
+const flyOnlyNote = computed(() =>
+  props.planet === 'sun'
+    ? 'The Sun has no surface to stand on.'
+    : 'No solid surface. This is a flight over the cloud deck.'
+);
+
+function emitExplore(mode: ExploreMode) {
   if (props.planet) {
-    emit('explore', props.planet);
+    emit('explore', props.planet, mode);
   }
 }
 
@@ -145,7 +156,7 @@ function formatNumber(num: number | undefined): string {
 
 function formatTemperature(kelvin: number | undefined): string {
   if (!kelvin) return '—';
-  const celsius = kelvin - 273;
+  const celsius = Math.round(kelvin - 273.15);
   return `${kelvin} K (${celsius > 0 ? '+' : ''}${celsius}°C)`;
 }
 
@@ -157,7 +168,8 @@ function formatDistance(km: number | undefined): string {
 }
 
 function formatRotation(hours: number | undefined): string {
-  return hours ? Math.abs(hours).toFixed(1) : '—';
+  if (hours == null) return '—';
+  return hours.toFixed(1);
 }
 </script>
 
@@ -298,6 +310,16 @@ h3 {
   padding: 16px 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.explore-note {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .explore-btn {
@@ -312,6 +334,11 @@ h3 {
   cursor: pointer;
   transition: all 0.2s;
   letter-spacing: 1px;
+}
+
+.explore-btn.secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .explore-btn:hover {
@@ -335,5 +362,25 @@ h3 {
 .slide-leave-from {
   transform: translateY(-50%) translateX(0);
   opacity: 1;
+}
+
+@media (max-width: 900px) {
+  .info-panel {
+    top: 56px;
+    right: 10px;
+    transform: none;
+    width: min(320px, calc(100vw - 20px));
+    max-height: calc(100vh - 430px);
+  }
+
+  .slide-enter-from,
+  .slide-leave-to {
+    transform: translateX(120%);
+  }
+
+  .slide-enter-to,
+  .slide-leave-from {
+    transform: translateX(0);
+  }
 }
 </style>

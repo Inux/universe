@@ -1,0 +1,8 @@
+{
+  "width": 4096,
+  "height": 2048,
+  "min": -4089.111083984375,
+  "max": 6334.8056640625,
+  "radiusKm": 1188.3,
+  "sources": "Elevation and mosaic: NASA New Horizons global DEM and LORRI/MVIC mosaic, 300 m, July 2017, via USGS, public domain. Topography covers the encounter hemisphere; the rest is unmarked and is drawn smooth. The mosaic is panchromatic with a mild warm display grade, not a mineral map. Vertical scale is exaggerated in the viewer."
+}

@@ -63,7 +63,7 @@ Planets use logarithmic scaling to ensure all bodies remain visible while preser
 ```typescript
 const REFERENCE_RADIUS = 6371; // Earth's radius (km)
 const BASE_VISUAL_SIZE = 50;
-const MIN_PLANET_SIZE = 20;
+const MIN_PLANET_SIZE = 4;
 const MAX_PLANET_SIZE = 400;
 
 function getLogarithmicSize(realRadius: number): number {
@@ -141,17 +141,21 @@ Glass-morphism styled panel with:
 - Orbital data (distance, year length, day length, moon count)
 - Atmosphere composition
 - Description and discovery info
-- **Explore Surface** button (for all planets except Sun)
+- **Walk the surface** and **Fly over** on solid worlds (Mercury, Venus, Earth, Mars, and the dwarf planets). Press `F` in the surface view to switch.
+- **Fly over** only on the Sun and the gas giants. There is no ground to land on.
 
 ### HUD Elements
 
 - **Right side**: Planet info panel (click planet to show)
 - **Bottom-left**: Controls hint
+- **Bottom center**: Time and distance. Six steps each, from real time and true distances to the packed tour. Space pauses time. The tour step is the default.
 - **Styling**: Glass-morphism with backdrop blur, gradient backgrounds
 
 ---
 
 ## Surface Exploration
+
+The surface you explore is a closed sphere of radius 480. Mercury, Venus, Earth, Mars, and Pluto load measured elevation and a color mosaic from `public/maps/`. Heights are exaggerated so relief is visible at this size; sea level on Earth is the real shoreline, and large lakes come from a water mask. Pluto's grid covers the New Horizons encounter, and the unmeasured face stays smooth. Haumea, Makemake, Eris, the Sun, and the gas giants stay procedural noise. Gravity and "up" are radial. The notes below describe the older square heightmap pipeline, which is still in the repo and is not what the surface view shows.
 
 ### Terrain Pipeline (Offline → Runtime)
 
@@ -232,7 +236,10 @@ for (let i = 0; i < octaves; i++) {
 ## Resources
 
 ### Texture Sources
-- Local textures in `/public/textures/` (from Solar System Scope)
+- Local textures in `/public/textures/` are Solar System Scope maps (CC BY 4.0): https://www.solarsystemscope.com/textures/
+- Venus uses the cloud map in orbit. `2k_venus_surface.jpg` is the Magellan radar view and is not the face you would see from space.
+- Pluto, Eris, Makemake, and Haumea have no global mosaic in the orbit view. On the surface, Pluto uses the partial New Horizons mosaic; the other three stay procedural.
+- Surface elevation: Earth is NOAA ETOPO 2022 ice surface, 60 arc-second (DOI 10.25921/fd45-gt74). Mars is NASA MOLA MEGDR. Venus is Magellan GTDR. Mercury is the USGS MESSENGER global DEM. Pluto is the New Horizons global DEM. Earth's lakes use the Solar System Scope specular map (CC BY 4.0). Surface color for Earth, Mars, Mercury, and Venus is Solar System Scope 8k (CC BY 4.0); Venus color is radar, not an optical photo.
 
 ### Dependencies
 - **vue** (^3.x) - UI framework

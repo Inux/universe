@@ -1,0 +1,8 @@
+{
+  "width": 8192,
+  "height": 4096,
+  "min": -10759.111328125,
+  "max": 8969.111328125,
+  "radiusKm": 2439.7,
+  "sources": "Elevation: USGS MESSENGER Global DEM 665 m v2, public domain. Color: Solar System Scope 8k Mercury (CC BY 4.0), resized. Vertical scale is exaggerated in the viewer."
+}
